@@ -31,7 +31,8 @@ too), chances and durations can be changed, and `eventFrequency` speeds the haun
 
 - `/dontfollowthemap status [player]`
 - `/dontfollowthemap stage <player> <0-3>`
-- `/dontfollowthemap trigger <event> [player]`: `sighting`, `stalk`, `whisper`, `torches`, `sign`, `build`, `map`, `grave`
+- `/dontfollowthemap trigger <event> [player]`: `sighting`, `stalk`, `whisper`, `torches`, `sign`, `build`, `map`, `grave`,
+  `thief` (the drops of the next block the player breaks in survival get stolen)
 - `/dontfollowthemap trigger possession [entity] [player]`: possesses an animal of that type (`minecraft:sheep`, `cow`, `pig`
   or `chicken`) near the player, or any of them when no type is given (for another player: `/execute as <player> run dontfollowthemap trigger possession`)
 - `/dontfollowthemap reset <player>`

@@ -99,7 +99,8 @@
   "commands.dontfollowthemap.reset": "La hantise de %s a été réinitialisée",
   "commands.dontfollowthemap.trigger.success": "%s déclenché pour %s",
   "commands.dontfollowthemap.trigger.failure": "%s n'a pas pu avoir lieu pour %s pour l'instant (pas d'endroit adapté autour ?)",
-  "commands.dontfollowthemap.trigger.possession": "Herobrine possède maintenant un animal près de %2$s : %1$s, à %3$s blocs",
+  "commands.dontfollowthemap.trigger.thief": "Quelque chose volera ce que lâchera le prochain bloc cassé par %s (en survie)",
+  "commands.dontfollowthemap.trigger.possession":"Herobrine possède maintenant un animal près de %2$s : %1$s, à %3$s blocs",
   "commands.dontfollowthemap.trigger.no_animal": "Rien à posséder autour de %2$s (%1$s) : l'animal doit être adulte, à moins de 32 blocs, ni attaché, ni monté, ni sans IA",
   "commands.dontfollowthemap.not_possessable": "Impossible de posséder cette entité (%1$s). Animaux possédables : %2$s",
   "commands.dontfollowthemap.unknown_event": "Événement inconnu : %s"

@@ -32,7 +32,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Decides when something happens to whom. Once per second, each haunted player whose next event is due gets one
@@ -50,10 +53,17 @@ public class HauntingDirector
 
     public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, POSSESSION}
 
+    /** Players whose next mined drops will be stolen no matter what (set by the command, kept until it happens). */
+    private static final Set<UUID> FORCED_THEFTS = new HashSet<>();
+
     public static void registerEvents()
     {
         ServerTickEvents.END_SERVER_TICK.register(HauntingDirector::onServerTick);
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> DelayedTasks.clear());
+        ServerLifecycleEvents.SERVER_STOPPED.register(server ->
+        {
+            DelayedTasks.clear();
+            FORCED_THEFTS.clear();
+        });
         ServerLivingEntityEvents.AFTER_DEATH.register(HauntingDirector::onDeath);
         EntitySleepEvents.START_SLEEPING.register(HauntingDirector::onStartSleeping);
         EntitySleepEvents.MODIFY_WAKE_UP_POSITION.register((entity, sleepingPos, bedState, wakeUpPos) -> entity instanceof ServerPlayer player ? onWakeUp(player, sleepingPos, wakeUpPos) : wakeUpPos);
@@ -240,14 +250,31 @@ public class HauntingDirector
         return Vec3.atBottomCenterOf(grave);
     }
 
+    /** The drops of the next block this player breaks will be stolen, whatever the config, their stage, the chance or the cooldown (used by the command). */
+    public static void forceNextTheft(ServerPlayer player) {FORCED_THEFTS.add(player.getUUID());}
+
     private static void onBlockBroken(ServerPlayer player, BlockPos pos)
     {
-        DFTMConfig config = DFTMConfig.get();
-        if (!config.thief || player.isCreative() || !canBeHaunted(player) || player.level().dimension() != Level.OVERWORLD) {return;}
-        HauntingData data = HauntingData.get(player);
-        long now = now(player.level().getServer());
-        if (data.stage(now) < HauntingData.HAUNTED || data.isOnCooldown(data.lastTheft, THEFT_COOLDOWN, now) || player.getRandom().nextDouble() >= config.thiefChance) {return;}
+        boolean forced = FORCED_THEFTS.contains(player.getUUID());
+        if (!forced)
+        {
+            DFTMConfig config = DFTMConfig.get();
+            if (!config.thief || player.isCreative() || !canBeHaunted(player) || player.level().dimension() != Level.OVERWORLD) {return;}
+            HauntingData data = HauntingData.get(player);
+            long now = now(player.level().getServer());
+            if (data.stage(now) < HauntingData.HAUNTED || data.isOnCooldown(data.lastTheft, THEFT_COOLDOWN, now) || player.getRandom().nextDouble() >= config.thiefChance) {return;}
+        }
         //the drops appear during the break: look for them on the next tick
-        DelayedTasks.schedule(1, () -> {if (UnseenEntity.comeForDrops(player, pos)) {data.lastTheft = now;}});
+        DelayedTasks.schedule(1, () ->
+        {
+            //a forced theft happens once, even if several blocks were broken at the same time
+            if (forced && !FORCED_THEFTS.contains(player.getUUID())) {return;}
+            //nothing dropped (creative, nothing to drop...) or nowhere to come from: a forced theft waits for the next block
+            if (UnseenEntity.comeForDrops(player, pos))
+            {
+                HauntingData.get(player).lastTheft = now(player.level().getServer());
+                FORCED_THEFTS.remove(player.getUUID());
+            }
+        });
     }
 }

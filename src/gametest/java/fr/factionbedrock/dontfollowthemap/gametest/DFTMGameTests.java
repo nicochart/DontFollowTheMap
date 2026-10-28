@@ -58,6 +58,7 @@ import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -398,6 +399,37 @@ public class DFTMGameTests
         helper.succeed();
     }
 
+    @GameTest(maxTicks = 60, skyAccess = true, padding = 10)
+    public void thiefCommandStealsFromTheNextMinedBlockOnly(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -8, 15, Blocks.STONE);
+        //a player who isn't haunted yet: the command doesn't care about the stage, the chance or the cooldown
+        ServerPlayer player = player(helper, 4, 1, 0, 180.0F);
+        player.setGameMode(GameType.SURVIVAL);
+        BlockPos first = helper.absolutePos(new BlockPos(3, 1, 6)), second = helper.absolutePos(new BlockPos(5, 1, 6));
+        level.setBlock(first, Blocks.DIRT.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(second, Blocks.DIRT.defaultBlockState(), Block.UPDATE_ALL);
+        AABB around = new AABB(first).inflate(8.0D);
+        runCommandAs(helper, player, "dontfollowthemap trigger thief");
+        helper.assertTrue(player.gameMode.destroyBlock(first), "The player must break the first block");
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(level.getEntitiesOfClass(UnseenEntity.class, around).size() == 1, "The thief must come for the first block"))
+                .thenExecute(() ->
+                {
+                    level.getEntitiesOfClass(UnseenEntity.class, around).forEach(UnseenEntity::discard);
+                    helper.assertTrue(player.gameMode.destroyBlock(second), "The player must break the second block");
+                })
+                .thenIdle(5)
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getEntitiesOfClass(UnseenEntity.class, around).isEmpty(), "The command must only send the thief once");
+                    level.getEntitiesOfClass(ItemEntity.class, around, item -> item.getItem().is(Items.DIRT)).forEach(ItemEntity::discard);
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
     //seal and boss
     @GameTest(maxTicks = 20, skyAccess = true, padding = 12)
     public void sealShrineIsBuilt(GameTestHelper helper)
@@ -507,4 +539,12 @@ public class DFTMGameTests
     }
 
     private static void removePlayer(ServerPlayer player) {player.level().getServer().getPlayerList().remove(player);}
+
+    /** Runs a command as this player, with operator rights (mock players all share the same name: they can't be targeted by name). */
+    private static void runCommandAs(GameTestHelper helper, ServerPlayer player, String command)
+    {
+        MinecraftServer server = helper.getLevel().getServer();
+        try {server.getCommands().getDispatcher().execute(command, server.createCommandSourceStack().withEntity(player).withSuppressedOutput());}
+        catch (CommandSyntaxException e) {helper.fail("/" + command + " failed: " + e.getMessage());}
+    }
 }

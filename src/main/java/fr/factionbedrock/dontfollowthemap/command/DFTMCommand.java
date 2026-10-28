@@ -44,7 +44,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class DFTMCommand
 {
-    private static final List<String> EXTRA_EVENTS = List.of("map", "grave");
+    private static final List<String> EXTRA_EVENTS = List.of("map", "grave", "thief");
     private static final DynamicCommandExceptionType UNKNOWN_EVENT = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_event", name));
     private static final Dynamic2CommandExceptionType NOT_POSSESSABLE = new Dynamic2CommandExceptionType((type, possessable) -> Component.translatable("commands.dontfollowthemap.not_possessable", type, possessable));
 
@@ -126,6 +126,13 @@ public class DFTMCommand
                 BlockPos grave = GraveDigger.dig(player.level(), home != null ? home : player.blockPosition(), player);
                 if (grave != null) {player.teleportTo(grave.getX() + 0.5D, grave.getY(), grave.getZ() + 0.5D);}
                 happened = grave != null;
+            }
+            case "thief" ->
+            {
+                //it can only come for drops: it waits for the next block the player breaks
+                HauntingDirector.forceNextTheft(player);
+                context.getSource().sendSuccess(() -> Component.translatable("commands.dontfollowthemap.trigger.thief", player.getDisplayName()), true);
+                return 1;
             }
             default ->
             {
