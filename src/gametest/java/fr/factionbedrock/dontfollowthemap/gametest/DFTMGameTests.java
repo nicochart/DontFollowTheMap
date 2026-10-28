@@ -1,10 +1,15 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.ParseResults;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.factionbedrock.dontfollowthemap.block.SealBlock;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
-import fr.factionbedrock.dontfollowthemap.entity.PossessedSheepEntity;
 import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.Possession;
 import fr.factionbedrock.dontfollowthemap.haunting.GraveDigger;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
@@ -16,20 +21,37 @@ import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
 import fr.factionbedrock.dontfollowthemap.world.SealPiece;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.RegistryOps;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.chicken.Chicken;
+import net.minecraft.world.entity.animal.chicken.ChickenVariants;
+import net.minecraft.world.entity.animal.cow.Cow;
+import net.minecraft.world.entity.animal.cow.CowSoundVariants;
+import net.minecraft.world.entity.animal.cow.CowVariants;
 import net.minecraft.world.entity.animal.golem.IronGolem;
+import net.minecraft.world.entity.animal.pig.Pig;
+import net.minecraft.world.entity.animal.pig.PigVariants;
 import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.DyeColor;
@@ -51,6 +73,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /** Server game tests: ./gradlew runGameTest */
 public class DFTMGameTests
@@ -208,28 +232,127 @@ public class DFTMGameTests
         helper.succeed();
     }
 
-    //possessed sheep
+    //possessed animals
     @GameTest(maxTicks = 800, skyAccess = true, padding = 16)
     public void possessedSheepStaresBitesAndLetsGo(GameTestHelper helper)
+    {
+        possessionStaresStrikesAndLetsGo(helper, PossessableAnimals.SHEEP, sheep -> sheep.setColor(DyeColor.RED), sheep -> sheep.getColor() == DyeColor.RED);
+    }
+
+    @GameTest(maxTicks = 800, skyAccess = true, padding = 16)
+    public void possessedCowKeepsItsVariantAndLetsGo(GameTestHelper helper)
+    {
+        possessionStaresStrikesAndLetsGo(helper, PossessableAnimals.COW, cow ->
+        {
+            setVariant(helper, cow, DataComponents.COW_VARIANT, CowVariants.WARM);
+            setVariant(helper, cow, DataComponents.COW_SOUND_VARIANT, CowSoundVariants.MOODY);
+        }, cow -> hasVariant(cow, DataComponents.COW_VARIANT, CowVariants.WARM) && hasVariant(cow, DataComponents.COW_SOUND_VARIANT, CowSoundVariants.MOODY));
+    }
+
+    @GameTest(maxTicks = 800, skyAccess = true, padding = 16)
+    public void possessedPigKeepsItsSaddleAndLetsGo(GameTestHelper helper)
+    {
+        possessionStaresStrikesAndLetsGo(helper, PossessableAnimals.PIG, pig ->
+        {
+            setVariant(helper, pig, DataComponents.PIG_VARIANT, PigVariants.COLD);
+            pig.setItemSlot(EquipmentSlot.SADDLE, new ItemStack(Items.SADDLE));
+        }, pig -> hasVariant(pig, DataComponents.PIG_VARIANT, PigVariants.COLD) && pig.isSaddled());
+    }
+
+    @GameTest(maxTicks = 800, skyAccess = true, padding = 16)
+    public void possessedChickenKeepsItsVariantAndLetsGo(GameTestHelper helper)
+    {
+        possessionStaresStrikesAndLetsGo(helper, PossessableAnimals.CHICKEN, chicken -> setVariant(helper, chicken, DataComponents.CHICKEN_VARIANT, ChickenVariants.WARM),
+                chicken -> hasVariant(chicken, DataComponents.CHICKEN_VARIANT, ChickenVariants.WARM));
+    }
+
+    @GameTest(maxTicks = 20)
+    public void onlyFreeAdultsOfTheAllowedKindsCanBePossessed(GameTestHelper helper)
+    {
+        floor(helper, 0, 7, Blocks.STONE);
+        Cow cow = helper.spawn(EntityTypes.COW, new BlockPos(1, 1, 1));
+        Cow calf = helper.spawn(EntityTypes.COW, new BlockPos(3, 1, 1));
+        calf.setBaby(true);
+        Sheep sheep = helper.spawn(EntityTypes.SHEEP, new BlockPos(5, 1, 1));
+        Pig pigWithoutAi = helper.spawn(EntityTypes.PIG, new BlockPos(1, 1, 4));
+        pigWithoutAi.setNoAi(true);
+        Chicken jockey = helper.spawn(EntityTypes.CHICKEN, new BlockPos(4, 1, 4));
+        jockey.setChickenJockey(true);
+        Animal alreadyPossessed = helper.spawn(DFTMEntities.POSSESSED_COW, new BlockPos(6, 1, 6));
+
+        List<PossessableAnimals.Kind<?>> cowsOnly = List.of(PossessableAnimals.COW);
+        helper.assertTrue(PossessableAnimals.canBePossessed(cow, cowsOnly), "An adult cow can be possessed");
+        helper.assertFalse(PossessableAnimals.canBePossessed(calf, cowsOnly), "A calf can't be possessed");
+        helper.assertFalse(PossessableAnimals.canBePossessed(sheep, cowsOnly), "A sheep can't be possessed when only cows are allowed");
+        helper.assertTrue(PossessableAnimals.canBePossessed(sheep, PossessableAnimals.ALL), "A sheep can be possessed when every animal is allowed");
+        helper.assertFalse(PossessableAnimals.canBePossessed(pigWithoutAi, PossessableAnimals.ALL), "An animal without AI can't be possessed");
+        helper.assertFalse(PossessableAnimals.canBePossessed(jockey, PossessableAnimals.ALL), "A chicken jockey can't be possessed");
+        helper.assertFalse(PossessableAnimals.canBePossessed(alreadyPossessed, PossessableAnimals.ALL), "A possessed animal can't be possessed again");
+        List.of(cow, calf, sheep, pigWithoutAi, jockey, alreadyPossessed).forEach(Entity::discard);
+        helper.succeed();
+    }
+
+    @GameTest(maxTicks = 20)
+    public void possessionCommandTakesAnOptionalAnimal(GameTestHelper helper)
+    {
+        MinecraftServer server = helper.getLevel().getServer();
+        CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
+        CommandSourceStack source = server.createCommandSourceStack().withSuppressedOutput();
+        for (String command : List.of("dontfollowthemap trigger possession", "dontfollowthemap trigger possession minecraft:cow", "dontfollowthemap trigger possession chicken", "dontfollowthemap trigger possession minecraft:pig @p"))
+        {
+            ParseResults<CommandSourceStack> parsed = dispatcher.parse(command, source);
+            helper.assertTrue(!parsed.getReader().canRead() && parsed.getExceptions().isEmpty() && parsed.getContext().getCommand() != null, "/" + command + " must be a complete command");
+        }
+        //the animal is checked before anything happens
+        try
+        {
+            dispatcher.execute(dispatcher.parse("dontfollowthemap trigger possession minecraft:zombie", source));
+            helper.assertTrue(false, "A zombie must not be accepted");
+        }
+        catch (CommandSyntaxException e)
+        {
+            helper.assertTrue(e.getRawMessage() instanceof Component message && message.getContents() instanceof TranslatableContents text && text.getKey().equals("commands.dontfollowthemap.not_possessable"),
+                    "The command must say that a zombie can't be possessed, not: " + e.getMessage());
+        }
+        helper.succeed();
+    }
+
+    /** The animal is possessed without any visible change, charges the player who comes next to it, runs away, and becomes the same plain animal again. */
+    private static <A extends Animal> void possessionStaresStrikesAndLetsGo(GameTestHelper helper, PossessableAnimals.Kind<A> kind, Consumer<A> setUp, Predicate<A> looksTheSame)
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -14, 21, Blocks.GRASS_BLOCK);
         ServerPlayer player = player(helper, 1, 1, 1, 0.0F);
-        Sheep sheep = helper.spawn(EntityTypes.SHEEP, new BlockPos(5, 1, 5));
-        sheep.setColor(DyeColor.RED);
-        PossessedSheepEntity possessed = PossessedSheepEntity.possess(sheep, player);
-        helper.assertTrue(possessed != null && sheep.isRemoved(), "The sheep must be replaced by a possessed one");
-        helper.assertTrue(possessed.getColor() == DyeColor.RED && possessed.isStaring(), "The possessed sheep must keep its wool and start by staring");
+        String name = kind.plainType().toShortString();
+        A animal = helper.spawn(kind.plainType(), new BlockPos(5, 1, 5));
+        setUp.accept(animal);
+        animal.setHealth(animal.getMaxHealth() - 1.0F);
+        Animal possessed = kind.possess(animal, player);
+        helper.assertTrue(possessed instanceof PossessedAnimal && possessed.getType() == kind.possessedType() && animal.isRemoved(), "The " + name + " must be replaced by a possessed one");
+        helper.assertTrue(looksTheSame.test(kind.animalClass().cast(possessed)) && possessed.getHealth() == animal.getHealth(), "The possessed " + name + " must look the same and keep its health");
+        Possession possession = ((PossessedAnimal) possessed).getPossession();
+        helper.assertTrue(possession.isStaring(), "The possessed " + name + " must start by staring");
         teleport(helper, player, 5, 1, 4, 0.0F);
-        helper.runAfterDelay(40, () -> helper.assertTrue(possessed.isRemoved() || !possessed.isStaring(), "The sheep must charge when the player comes close"));
+        helper.runAfterDelay(40, () -> helper.assertTrue(possessed.isRemoved() || !possession.isStaring(), "The " + name + " must charge when the player comes close"));
         helper.succeedWhen(() ->
         {
             helper.assertTrue(possessed.isRemoved(), "The possession must end");
-            List<Sheep> released = level.getEntitiesOfClass(Sheep.class, helper.getBounds().inflate(24.0D), candidate -> candidate.getType() == EntityTypes.SHEEP && candidate.getColor() == DyeColor.RED);
-            helper.assertTrue(!released.isEmpty(), "A normal red sheep must be left");
-            released.forEach(Sheep::discard);
+            List<A> released = level.getEntitiesOfClass(kind.animalClass(), helper.getBounds().inflate(24.0D), candidate -> candidate.getType() == kind.plainType() && looksTheSame.test(candidate));
+            helper.assertTrue(released.size() == 1, "The same plain " + name + " must be left, found " + released.size());
+            released.forEach(Entity::discard);
             removePlayer(player);
         });
+    }
+
+    private static <T> void setVariant(GameTestHelper helper, Animal animal, DataComponentType<Holder<T>> type, ResourceKey<T> variant)
+    {
+        animal.setComponent(type, helper.getLevel().registryAccess().getOrThrow(variant));
+    }
+
+    private static <T> boolean hasVariant(Animal animal, DataComponentType<Holder<T>> type, ResourceKey<T> variant)
+    {
+        Holder<T> value = animal.get(type);
+        return value != null && value.is(variant);
     }
 
     //thief

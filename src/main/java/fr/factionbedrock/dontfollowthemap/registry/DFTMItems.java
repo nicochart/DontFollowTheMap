@@ -25,6 +25,9 @@ public class DFTMItems
             .component(DataComponents.LORE, new ItemLore(List.of(Component.translatable("item.dontfollowthemap.seal_fragment.lore"))))));
     public static final Item HEROBRINE_SPAWN_EGG = register("herobrine_spawn_egg", props -> new SpawnEggItem(props.spawnEgg(DFTMEntities.HEROBRINE).rarity(Rarity.EPIC)));
     public static final Item POSSESSED_SHEEP_SPAWN_EGG = register("possessed_sheep_spawn_egg", props -> new SpawnEggItem(props.spawnEgg(DFTMEntities.POSSESSED_SHEEP)));
+    public static final Item POSSESSED_COW_SPAWN_EGG = register("possessed_cow_spawn_egg", props -> new SpawnEggItem(props.spawnEgg(DFTMEntities.POSSESSED_COW)));
+    public static final Item POSSESSED_PIG_SPAWN_EGG = register("possessed_pig_spawn_egg", props -> new SpawnEggItem(props.spawnEgg(DFTMEntities.POSSESSED_PIG)));
+    public static final Item POSSESSED_CHICKEN_SPAWN_EGG = register("possessed_chicken_spawn_egg", props -> new SpawnEggItem(props.spawnEgg(DFTMEntities.POSSESSED_CHICKEN)));
 
     public static final CreativeModeTab TAB = Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, DontFollowTheMap.id("main"), FabricCreativeModeTab.builder()
             .title(Component.translatable("itemGroup.dontfollowthemap"))
@@ -35,6 +38,9 @@ public class DFTMItems
                 output.accept(SEAL_FRAGMENT);
                 output.accept(HEROBRINE_SPAWN_EGG);
                 output.accept(POSSESSED_SHEEP_SPAWN_EGG);
+                output.accept(POSSESSED_COW_SPAWN_EGG);
+                output.accept(POSSESSED_PIG_SPAWN_EGG);
+                output.accept(POSSESSED_CHICKEN_SPAWN_EGG);
             })
             .build());
 

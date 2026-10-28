@@ -1,0 +1,11 @@
+{
+  "parent": "dontfollowthemap:watched",
+  "criteria": {"bitten": {"trigger": "minecraft:entity_hurt_player", "conditions": {"damage": {"source_entity": {"minecraft:entity_type": "dontfollowthemap:possessed_pig"}}}}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.possessed_pig.title"},
+    "description": {"translate": "advancements.dontfollowthemap.possessed_pig.description"},
+    "icon": {"id": "minecraft:porkchop"},
+    "frame": "task",
+    "hidden": true
+  }
+}

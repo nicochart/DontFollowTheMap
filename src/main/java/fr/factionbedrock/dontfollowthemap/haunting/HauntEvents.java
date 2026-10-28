@@ -1,7 +1,7 @@
 package fr.factionbedrock.dontfollowthemap.haunting;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
-import fr.factionbedrock.dontfollowthemap.entity.PossessedSheepEntity;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -16,8 +16,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.entity.animal.sheep.Sheep;
+import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
@@ -36,6 +35,7 @@ import fr.factionbedrock.dontfollowthemap.util.SignWriter;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /** Every haunting event. Each one returns false when it could not happen right now (no room, nothing to haunt...). */
@@ -254,13 +254,17 @@ public class HauntEvents
         return build != Build.PILLAR || !HauntSpots.isNearRedstoneSensitiveBlock(level, base.above(2));
     }
 
-    //possessed sheep
-    public static boolean possessSheep(ServerPlayer player)
+    //possessed animals
+    /**
+     * Herobrine takes over one of the animals of these kinds around the player, picked at random: the more of a kind, the likelier.
+     * Returns the possessed animal, or null if there was none to take.
+     */
+    @Nullable public static Animal possessAnimal(ServerPlayer player, Collection<PossessableAnimals.Kind<?>> kinds)
     {
-        List<Sheep> sheep = player.level().getEntitiesOfClass(Sheep.class, player.getBoundingBox().inflate(32.0D, 12.0D, 32.0D),
-                candidate -> candidate.getType() == EntityTypes.SHEEP && candidate.isAlive() && !candidate.isBaby() && !candidate.isLeashed() && !candidate.isPassenger() && !candidate.isVehicle() && !candidate.isNoAi());
-        if (sheep.isEmpty()) {return false;}
-        return PossessedSheepEntity.possess(sheep.get(player.getRandom().nextInt(sheep.size())), player) != null;
+        if (kinds.isEmpty()) {return null;}
+        List<Animal> animals = player.level().getEntitiesOfClass(Animal.class, player.getBoundingBox().inflate(32.0D, 12.0D, 32.0D), animal -> PossessableAnimals.canBePossessed(animal, kinds));
+        if (animals.isEmpty()) {return null;}
+        return PossessableAnimals.possess(animals.get(player.getRandom().nextInt(animals.size())), player);
     }
 
     //apparitions caused by the player

@@ -3,8 +3,9 @@ package fr.factionbedrock.dontfollowthemap.haunting;
 import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
-import fr.factionbedrock.dontfollowthemap.entity.PossessedSheepEntity;
 import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMAttachments;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
@@ -47,7 +48,7 @@ public class HauntingDirector
     private static final long GRAVE_COOLDOWN = HauntingData.DAY * 4L;
     private static final long MAP_REPLACEMENT_DELAY = HauntingData.DAY * 2L;
 
-    public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, SHEEP}
+    public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, POSSESSION}
 
     public static void registerEvents()
     {
@@ -155,14 +156,14 @@ public class HauntingDirector
             case TORCHES -> config.torchSwaps;
             case SIGN -> config.signs;
             case BUILD -> config.builds;
-            case SHEEP -> config.possessedSheep;
+            case POSSESSION -> !PossessableAnimals.enabled().isEmpty();
         };
         if (!enabled) {return 0;}
         return switch (stage)
         {
             case HauntingData.WATCHED -> switch (event) {case SIGHTING -> 6; case WHISPER, TORCHES -> 3; default -> 0;};
-            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case WHISPER -> 2; case TORCHES, SIGN -> 3; case BUILD, SHEEP -> 2; default -> 0;};
-            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, SHEEP -> 3; case SIGN -> 2; case WHISPER -> 1;};
+            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case WHISPER -> 2; case TORCHES, SIGN -> 3; case BUILD, POSSESSION -> 2; default -> 0;};
+            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, POSSESSION -> 3; case SIGN -> 2; case WHISPER -> 1;};
         };
     }
 
@@ -177,7 +178,7 @@ public class HauntingDirector
             case TORCHES -> HauntEvents.swapTorches(player, 2 + 2 * Math.max(0, stage - 1));
             case SIGN -> HauntEvents.placeSign(player);
             case BUILD -> HauntEvents.build(player);
-            case SHEEP -> HauntEvents.possessSheep(player);
+            case POSSESSION -> HauntEvents.possessAnimal(player, PossessableAnimals.enabled()) != null;
         };
     }
 
@@ -191,7 +192,7 @@ public class HauntingDirector
         int stage = data.stage(now);
         if (stage == HauntingData.QUIET || data.isOnCooldown(data.lastKillApparition, KILL_APPARITION_COOLDOWN, now)) {return;}
         double chance = config.killApparitionChance * (stage >= HauntingData.HAUNTED ? 1.5D : 1.0D);
-        if (entity instanceof PossessedSheepEntity) {chance = 1.0D;}
+        if (entity instanceof PossessedAnimal) {chance = 1.0D;}
         if (player.getRandom().nextDouble() < chance && HauntEvents.killApparition(player, entity.position())) {data.lastKillApparition = now;}
     }
 

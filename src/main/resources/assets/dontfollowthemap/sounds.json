@@ -79,6 +79,51 @@
       {"name": "minecraft:mob/sheep/say3", "pitch": 0.3, "volume": 1.3}
     ]
   },
+  "entity.possessed_cow.ambient": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_cow.ambient",
+    "sounds": [
+      {"name": "minecraft:mob/cow/say1", "pitch": 0.5},
+      {"name": "minecraft:mob/cow/say2", "pitch": 0.5},
+      {"name": "minecraft:mob/cow/say3", "pitch": 0.45},
+      {"name": "minecraft:mob/cow/say4", "pitch": 0.45}
+    ]
+  },
+  "entity.possessed_cow.attack": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_cow.attack",
+    "sounds": [
+      {"name": "minecraft:mob/cow/hurt1", "pitch": 0.35, "volume": 1.4},
+      {"name": "minecraft:mob/cow/hurt3", "pitch": 0.35, "volume": 1.4}
+    ]
+  },
+  "entity.possessed_pig.ambient": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_pig.ambient",
+    "sounds": [
+      {"name": "minecraft:mob/pig/say1", "pitch": 0.45},
+      {"name": "minecraft:mob/pig/say2", "pitch": 0.45},
+      {"name": "minecraft:mob/pig/say3", "pitch": 0.4}
+    ]
+  },
+  "entity.possessed_pig.attack": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_pig.attack",
+    "sounds": [
+      {"name": "minecraft:mob/pig/death", "pitch": 0.4, "volume": 1.3}
+    ]
+  },
+  "entity.possessed_chicken.ambient": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_chicken.ambient",
+    "sounds": [
+      {"name": "minecraft:mob/chicken/say1", "pitch": 0.45},
+      {"name": "minecraft:mob/chicken/say2", "pitch": 0.45},
+      {"name": "minecraft:mob/chicken/say3", "pitch": 0.4}
+    ]
+  },
+  "entity.possessed_chicken.attack": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_chicken.attack",
+    "sounds": [
+      {"name": "minecraft:mob/chicken/hurt1", "pitch": 0.4, "volume": 1.3},
+      {"name": "minecraft:mob/chicken/hurt2", "pitch": 0.4, "volume": 1.3}
+    ]
+  },
   "entity.unseen.steal": {
     "subtitle": "subtitles.dontfollowthemap.entity.unseen.steal",
     "sounds": [

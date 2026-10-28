@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "dontfollowthemap:possessed_sheep",
+    "dontfollowthemap:possessed_cow",
+    "dontfollowthemap:possessed_pig",
+    "dontfollowthemap:possessed_chicken"
+  ]
+}

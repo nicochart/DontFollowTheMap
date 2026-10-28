@@ -1,0 +1,184 @@
+package fr.factionbedrock.dontfollowthemap.entity.possessed;
+
+import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.FloatGoal;
+import net.minecraft.world.entity.ai.goal.GoalSelector;
+import net.minecraft.world.entity.ai.util.DefaultRandomPos;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.UUID;
+
+/**
+ * What Herobrine does with an animal he took over. Same model, same texture, same name: nothing gives it away, except that it stares.
+ * It follows its victim at a distance, charges when they come too close (or after staring long enough), strikes once, runs away,
+ * and turns back into the plain animal it was once out of sight. Every possessed animal forwards its hooks here.
+ */
+public class Possession
+{
+    private enum Phase {STARE, ATTACK, FLEE}
+
+    public static final int AMBIENT_SOUND_INTERVAL = 200;
+    private static final int MAX_STARE_TICKS = 20 * 60 * 4;
+    private static final int CLOSE_STARE_TICKS_BEFORE_ATTACK = 20 * 15;
+    private static final int ATTACK_TIMEOUT = 20 * 8;
+    private static final int MIN_FLEE_TICKS = 20 * 6;
+
+    private final Animal animal;
+    private final PossessableAnimals.Kind<?> kind;
+    private Phase phase = Phase.STARE;
+    @Nullable private UUID victimId;
+    private int phaseTicks;
+    private int closeStareTicks;
+
+    public Possession(Animal animal, PossessableAnimals.Kind<?> kind)
+    {
+        this.animal = animal;
+        this.kind = kind;
+    }
+
+    /** The plain animal's attributes, plus what it needs to strike. */
+    public static AttributeSupplier.Builder attributes(AttributeSupplier.Builder plainAttributes, double attackDamage)
+    {
+        return plainAttributes.add(Attributes.ATTACK_DAMAGE, attackDamage).add(Attributes.FOLLOW_RANGE, 40.0D);
+    }
+
+    /** Called once the animal created its own goals (some animals need theirs to exist): the possession drives everything instead. */
+    public static void replaceGoals(Animal animal, GoalSelector goals)
+    {
+        goals.removeAllGoals(goal -> true);
+        goals.addGoal(0, new FloatGoal(animal));
+    }
+
+    /** Still just staring (it hasn't charged yet). */
+    public boolean isStaring() {return this.phase == Phase.STARE;}
+
+    void setVictim(Player victim) {this.victimId = victim.getUUID();}
+
+    public SoundEvent ambientSound() {return this.kind.ambientSound();}
+
+    public void tick(ServerLevel level)
+    {
+        this.phaseTicks++;
+        //spawned from an egg: it picks whoever is around
+        if (this.victimId == null && level.getNearestPlayer(this.animal, 32.0D) instanceof Player nearest) {this.victimId = nearest.getUUID();}
+        Player victim = this.victimId == null ? null : level.getPlayerByUUID(this.victimId);
+        if (victim == null || !victim.isAlive() || victim.isSpectator() || this.animal.distanceToSqr(victim) > 48.0D * 48.0D)
+        {
+            this.release();
+            return;
+        }
+
+        switch (this.phase)
+        {
+            case STARE ->
+            {
+                this.stareAt(victim);
+                double distance = this.animal.distanceTo(victim);
+                if (distance > 14.0D) {this.animal.getNavigation().moveTo(victim, 0.9D);}
+                else if (distance < 10.0D) {this.animal.getNavigation().stop();}
+                if (distance < 10.0D) {this.closeStareTicks++;}
+                if (distance < 3.5D || this.closeStareTicks > CLOSE_STARE_TICKS_BEFORE_ATTACK) {this.setPhase(Phase.ATTACK);}
+                else if (this.phaseTicks > MAX_STARE_TICKS) {this.release();}
+            }
+            case ATTACK ->
+            {
+                this.stareAt(victim);
+                if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
+                if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
+                {
+                    this.animal.doHurtTarget(level, victim);
+                    level.playSound(null, this.animal.getX(), this.animal.getY(), this.animal.getZ(), this.kind.attackSound(), SoundSource.HOSTILE, 1.0F, 1.0F);
+                    this.setPhase(Phase.FLEE);
+                }
+                else if (this.phaseTicks > ATTACK_TIMEOUT) {this.setPhase(Phase.FLEE);}
+            }
+            case FLEE ->
+            {
+                if (this.phaseTicks % 20 == 1 || this.animal.getNavigation().isDone())
+                {
+                    Vec3 away = DefaultRandomPos.getPosAway(this.animal, 16, 7, victim.position());
+                    if (away != null) {this.animal.getNavigation().moveTo(away.x, away.y, away.z, 2.0D);}
+                }
+                boolean outOfSight = this.animal.distanceTo(victim) > 16.0D || (victim instanceof ServerPlayer player && HauntSpots.isHiddenFrom(player, this.animal.getEyePosition()));
+                if ((this.phaseTicks > MIN_FLEE_TICKS && outOfSight) || this.phaseTicks > MIN_FLEE_TICKS * 4) {this.release();}
+            }
+        }
+    }
+
+    /** Head and body turned towards the victim. */
+    private void stareAt(Player victim)
+    {
+        this.animal.getLookControl().setLookAt(victim, 30.0F, 90.0F);
+        if (this.animal.getNavigation().isDone())
+        {
+            float targetYaw = (float) (Mth.atan2(victim.getZ() - this.animal.getZ(), victim.getX() - this.animal.getX()) * Mth.RAD_TO_DEG) - 90.0F;
+            this.animal.setYBodyRot(Mth.approachDegrees(this.animal.yBodyRot, targetYaw, 6.0F));
+        }
+    }
+
+    private void setPhase(Phase phase)
+    {
+        this.phase = phase;
+        this.phaseTicks = 0;
+        this.animal.getNavigation().stop();
+    }
+
+    /** Herobrine lets go: a perfectly normal animal again. */
+    private void release()
+    {
+        if (!this.animal.isRemoved()) {this.kind.release(this.animal);}
+    }
+
+    /** Hitting it makes it charge whoever hit it. Returns whether it was hurt. */
+    public boolean onHurt(DamageSource source, boolean hurt)
+    {
+        if (hurt && this.animal.isAlive() && source.getEntity() instanceof Player player) {this.provoke(player);}
+        return hurt;
+    }
+
+    /** Shearing, milking or saddling it is not a good idea either. Returns the interaction result. */
+    public InteractionResult onInteract(Player player, InteractionResult result)
+    {
+        if (result.consumesAction() && !this.animal.level().isClientSide()) {this.provoke(player);}
+        return result;
+    }
+
+    private void provoke(Player player)
+    {
+        if (this.phase != Phase.STARE) {return;}
+        this.victimId = player.getUUID();
+        this.setPhase(Phase.ATTACK);
+    }
+
+    public void save(ValueOutput output)
+    {
+        output.putString("Phase", this.phase.name());
+        output.putInt("PhaseTicks", this.phaseTicks);
+        output.putInt("CloseStareTicks", this.closeStareTicks);
+        output.storeNullable("Victim", UUIDUtil.CODEC, this.victimId);
+    }
+
+    public void load(ValueInput input)
+    {
+        try {this.phase = Phase.valueOf(input.getStringOr("Phase", Phase.STARE.name()));}
+        catch (IllegalArgumentException e) {this.phase = Phase.STARE;}
+        this.phaseTicks = input.getIntOr("PhaseTicks", 0);
+        this.closeStareTicks = input.getIntOr("CloseStareTicks", 0);
+        this.victimId = input.read("Victim", UUIDUtil.CODEC).orElse(null);
+    }
+}

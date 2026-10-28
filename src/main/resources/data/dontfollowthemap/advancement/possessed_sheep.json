@@ -2,8 +2,8 @@
   "parent": "dontfollowthemap:watched",
   "criteria": {"bitten": {"trigger": "minecraft:entity_hurt_player", "conditions": {"damage": {"source_entity": {"minecraft:entity_type": "dontfollowthemap:possessed_sheep"}}}}},
   "display": {
-    "title": {"translate": "advancements.dontfollowthemap.possessed.title"},
-    "description": {"translate": "advancements.dontfollowthemap.possessed.description"},
+    "title": {"translate": "advancements.dontfollowthemap.possessed_sheep.title"},
+    "description": {"translate": "advancements.dontfollowthemap.possessed_sheep.description"},
     "icon": {"id": "minecraft:white_wool"},
     "frame": "task",
     "hidden": true

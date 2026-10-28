@@ -13,7 +13,7 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 |---|---|---|
 | Quiet | first day | nothing |
 | Watched | days 1 to 3 | Herobrine is seen in the distance: a low rumble when you get closer, gone before you can reach him (or if you stare at him too long). Whispers and footsteps behind you. Torches out of sight turn into redstone torches for a while. He may appear for an instant on what you just killed, or next to your bed when you try to sleep. |
-| Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep starts staring at you... Something invisible steals what you mine. You may wake up in a grave. |
+| Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you... Something invisible steals what you mine. You may wake up in a grave. |
 | Hunted | after day 6, or once he is free | Everything happens more often, and he waits right behind you. |
 
 The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight
@@ -24,14 +24,16 @@ Everything is server side: the mod is needed on the server, and on clients to se
 
 ## Configuration
 
-`config/dontfollowthemap.json` (created on first launch): every event can be turned off, chances and
-durations can be changed, and `eventFrequency` speeds the haunting up or slows it down.
+`config/dontfollowthemap.json` (created on first launch): every event can be turned off (each possessable animal
+too), chances and durations can be changed, and `eventFrequency` speeds the haunting up or slows it down.
 
 ## Commands (operators)
 
 - `/dontfollowthemap status [player]`
 - `/dontfollowthemap stage <player> <0-3>`
-- `/dontfollowthemap trigger <event> [player]`: `sighting`, `stalk`, `whisper`, `torches`, `sign`, `build`, `sheep`, `map`, `grave`
+- `/dontfollowthemap trigger <event> [player]`: `sighting`, `stalk`, `whisper`, `torches`, `sign`, `build`, `map`, `grave`
+- `/dontfollowthemap trigger possession [entity] [player]`: possesses an animal of that type (`minecraft:sheep`, `cow`, `pig`
+  or `chicken`) near the player, or any of them when no type is given (for another player: `/execute as <player> run dontfollowthemap trigger possession`)
 - `/dontfollowthemap reset <player>`
 - `/locate structure dontfollowthemap:seal`
 
@@ -42,7 +44,7 @@ Requires JDK 25.
 ```
 ./gradlew build               # jar in build/libs
 ./gradlew runClient           # play
-./gradlew runGameTest         # 15 server game tests (every event, the shrine, the fight)
+./gradlew runGameTest         # server game tests (every event, every possessed animal, the shrine, the fight)
 ./gradlew runClientGameTest   # renders everything, screenshots in build/run/clientGameTest/screenshots
 ```
 

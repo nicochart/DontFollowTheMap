@@ -1,14 +1,21 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
+import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
+import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+
+import java.util.Locale;
 
 /**
  * Client game test: ./gradlew runClientGameTest
@@ -25,10 +32,8 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runCommand("time set noon");
             server.runCommand("tp @a 0.5 -60 0.5 0 0");
 
-            //Herobrine, and a possessed sheep next to a normal one: they must look exactly the same
+            //Herobrine
             server.runCommand("summon dontfollowthemap:herobrine 0.5 -60 4.5 {NoAI:1b,Rotation:[180f,0f]}");
-            server.runCommand("summon minecraft:sheep 3.5 -60 6.5 {NoAI:1b,Color:14b,Rotation:[150f,0f]}");
-            server.runCommand("summon dontfollowthemap:possessed_sheep -2.5 -60 6.5 {NoAI:1b,Color:14b,Rotation:[210f,0f]}");
             singleplayer.getConnection().waitForChunksRender();
             context.waitTicks(20);
             context.takeScreenshot("dftm_herobrine_day");
@@ -37,11 +42,39 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runCommand("time set midnight");
             context.waitTicks(20);
             context.takeScreenshot("dftm_herobrine_night");
-            //removed, not killed: killing Herobrine would count as defeating him
-            server.runOnServer(minecraftServer -> minecraftServer.overworld().getAllEntities().forEach(entity -> {if (!(entity instanceof ServerPlayer)) {entity.discard();}}));
+            discardEverythingButPlayers(server);
+
+            //each plain animal (left) next to its possessed twin (right): they must look exactly the same, wool, variant and saddle included
+            server.runCommand("time set noon");
+            summonAnimals(server, 0.9D, "plain");
+            summonAnimals(server, -0.9D, "possess");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                minecraftServer.overworld().getEntitiesOfClass(Animal.class, new AABB(-9.0D, -61.0D, 7.0D, 9.0D, -57.0D, 10.0D), animal -> animal.entityTags().contains("possess"))
+                        .forEach(animal -> PossessableAnimals.possess(animal, player));
+            });
+            server.runCommand("tp @a 0.5 -60 0.5 0 10");
+            context.waitTicks(20);
+            context.takeScreenshot("dftm_possessed_animals");
+            discardEverythingButPlayers(server);
+
+            //the trigger command, with a real player: first the given animal type, then whatever animal is left around
+            server.runCommand("summon minecraft:cow 3.5 -60 6.5");
+            server.runCommand("dontfollowthemap trigger possession minecraft:cow @p");
+            server.runCommand("summon minecraft:pig -2.5 -60 6.5");
+            server.runCommand("execute as @p run dontfollowthemap trigger possession");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerLevel level = minecraftServer.overworld();
+                if (level.getEntities(DFTMEntities.POSSESSED_COW, entity -> true).size() != 1 || level.getEntities(DFTMEntities.POSSESSED_PIG, entity -> true).size() != 1)
+                {
+                    throw new AssertionError("/dontfollowthemap trigger possession must have possessed the cow, then the pig");
+                }
+            });
+            discardEverythingButPlayers(server);
 
             //an apparition watching from afar
-            server.runCommand("time set noon");
             server.runOnServer(minecraftServer ->
             {
                 ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
@@ -69,5 +102,25 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(40);
             context.takeScreenshot("dftm_seal_map");
         }
+    }
+
+    /** A red sheep, a warm cow, a cold saddled pig and a cold chicken in a row 8 blocks ahead, facing the player, each shifted by offsetX. */
+    private static void summonAnimals(TestServerContext server, double offsetX, String tag)
+    {
+        summon(server, "sheep", 6.0D + offsetX, tag, "Color:14b");
+        summon(server, "cow", 2.0D + offsetX, tag, "variant:\"minecraft:warm\"");
+        summon(server, "pig", -2.0D + offsetX, tag, "variant:\"minecraft:cold\",equipment:{saddle:{id:\"minecraft:saddle\",count:1}}");
+        summon(server, "chicken", -6.0D + offsetX, tag, "variant:\"minecraft:cold\"");
+    }
+
+    private static void summon(TestServerContext server, String animal, double x, String tag, String data)
+    {
+        server.runCommand(String.format(Locale.ROOT, "summon minecraft:%s %.1f -60 8.5 {NoAI:1b,Rotation:[180f,0f],Tags:[\"%s\"],%s}", animal, x, tag, data));
+    }
+
+    /** Removed, not killed: killing Herobrine would count as defeating him. */
+    private static void discardEverythingButPlayers(TestServerContext server)
+    {
+        server.runOnServer(minecraftServer -> minecraftServer.overworld().getAllEntities().forEach(entity -> {if (!(entity instanceof ServerPlayer)) {entity.discard();}}));
     }
 }
