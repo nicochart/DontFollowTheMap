@@ -14,7 +14,7 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 | Quiet | first day | nothing |
 | Watched | days 1 to 3 | Herobrine is seen in the distance: a low rumble when you get closer, gone before you can reach him (or if you stare at him too long). Whispers and footsteps behind you. Torches out of sight turn into redstone torches for a while. He may appear for an instant on what you just killed, or next to your bed when you try to sleep. |
 | Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you... Something invisible steals what you mine. You may wake up in a grave. |
-| Hunted | after day 6, or once he is free | Everything happens more often, and he waits right behind you. |
+| Hunted | after day 6, or once he is free | Everything happens more often, and he waits right behind you while the fog slowly thickens. |
 
 The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight
 (blinks, marked lightning strikes, shades, darkness). Defeat him to get your stolen items back and some peace.

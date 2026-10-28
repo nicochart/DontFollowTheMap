@@ -5,6 +5,9 @@ import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -44,6 +47,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
 
     public static final float VANISH_DISTANCE = 10.0F;
     private static final int STARE_TICKS_TO_VANISH = 70;
+    /** The network id of the player it stalks (standing behind them), -1 if none: their client thickens its fog meanwhile. */
+    private static final EntityDataAccessor<Integer> DATA_STALKED_PLAYER = SynchedEntityData.defineId(HerobrineApparitionEntity.class, EntityDataSerializers.INT);
 
     private Mode mode = Mode.WATCH;
     @Nullable private UUID targetId;
@@ -75,7 +80,18 @@ public class HerobrineApparitionEntity extends PathfinderMob
         return apparition;
     }
 
+    @Override protected void defineSynchedData(SynchedEntityData.Builder builder)
+    {
+        super.defineSynchedData(builder);
+        builder.define(DATA_STALKED_PLAYER, -1);
+    }
+
     public void setLeavesMap(boolean leavesMap) {this.leavesMap = leavesMap;}
+
+    public void setStalking(ServerPlayer player) {this.entityData.set(DATA_STALKED_PLAYER, player.getId());}
+
+    /** Whether it is standing behind this player, waiting for them to turn around (known on both sides). */
+    public boolean isStalking(Player player) {return this.entityData.get(DATA_STALKED_PLAYER) == player.getId();}
 
     public Mode getMode() {return this.mode;}
 

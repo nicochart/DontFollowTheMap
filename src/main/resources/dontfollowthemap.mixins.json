@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "fr.factionbedrock.dontfollowthemap.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"AtmosphericFogEnvironmentMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

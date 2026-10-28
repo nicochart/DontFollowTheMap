@@ -2,6 +2,7 @@ package fr.factionbedrock.dontfollowthemap.gametest;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
+import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -82,6 +83,26 @@ public class DFTMClientGameTest implements FabricClientGameTest
             });
             context.waitTicks(15);
             context.takeScreenshot("dftm_apparition");
+            discardEverythingButPlayers(server);
+
+            //a stalk: he waits right behind the player while the fog slowly thickens, up to the boss fight one
+            server.runOnServer(minecraftServer ->
+            {
+                if (!HauntEvents.stalk(minecraftServer.getPlayerList().getPlayers().getFirst())) {throw new AssertionError("The stalk must find room behind the player");}
+            });
+            context.waitTicks(20);
+            context.takeScreenshot("dftm_stalk_start");
+            context.waitTicks(20 * 10);
+            context.takeScreenshot("dftm_stalk_thickening");
+            context.waitTicks(20 * 10);
+            context.takeScreenshot("dftm_stalk_full");
+            //turning around: there he is
+            server.runCommand("tp @a 0.5 -60 0.5 180 0");
+            context.waitTicks(5);
+            context.takeScreenshot("dftm_stalk_turned_around");
+            discardEverythingButPlayers(server);
+            //the fog lifts once he is gone
+            context.waitTicks(20 * 5);
 
             //the shrine, seen from above
             server.runCommand("place structure dontfollowthemap:seal 0 -60 40");

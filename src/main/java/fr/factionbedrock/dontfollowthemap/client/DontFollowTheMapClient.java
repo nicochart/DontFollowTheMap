@@ -2,6 +2,7 @@ package fr.factionbedrock.dontfollowthemap.client;
 
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.minecraft.client.renderer.entity.ChickenRenderer;
 import net.minecraft.client.renderer.entity.CowRenderer;
@@ -21,5 +22,6 @@ public class DontFollowTheMapClient implements ClientModInitializer
         EntityRendererRegistry.register(DFTMEntities.POSSESSED_PIG, PigRenderer::new);
         EntityRendererRegistry.register(DFTMEntities.POSSESSED_CHICKEN, ChickenRenderer::new);
         EntityRendererRegistry.register(DFTMEntities.UNSEEN, NoopRenderer::new);
+        ClientTickEvents.END_CLIENT_TICK.register(StalkFog::tick);
     }
 }

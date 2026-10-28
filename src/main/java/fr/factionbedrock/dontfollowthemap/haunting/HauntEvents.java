@@ -56,13 +56,13 @@ public class HauntEvents
         return true;
     }
 
-    /** Right behind the player, waiting for them to turn around. */
+    /** Right behind the player, waiting for them to turn around, while their fog slowly thickens (client/StalkFog). */
     public static boolean stalk(ServerPlayer player)
     {
         if (hasActiveApparition(player)) {return false;}
         Vec3 spot = HauntSpots.findSightingSpot(player, 13.0D, 18.0D, 140.0D, 180.0D);
         if (spot == null) {return false;}
-        HerobrineApparitionEntity.spawn(player.level(), spot, player, HerobrineApparitionEntity.Mode.WATCH, 20 * 40);
+        HerobrineApparitionEntity.spawn(player.level(), spot, player, HerobrineApparitionEntity.Mode.WATCH, 20 * 40).setStalking(player);
         HauntingData.get(player).sightings++;
         return true;
     }
