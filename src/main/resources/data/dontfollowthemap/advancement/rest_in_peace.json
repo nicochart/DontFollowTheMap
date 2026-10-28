@@ -1,0 +1,11 @@
+{
+  "parent": "dontfollowthemap:the_map",
+  "criteria": {"triggered": {"trigger": "minecraft:impossible"}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.rest_in_peace.title"},
+    "description": {"translate": "advancements.dontfollowthemap.rest_in_peace.description"},
+    "icon": {"id": "minecraft:mossy_stone_bricks"},
+    "frame": "task",
+    "hidden": true
+  }
+}

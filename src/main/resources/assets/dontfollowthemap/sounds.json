@@ -1,0 +1,110 @@
+{
+  "entity.herobrine.presence": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.presence",
+    "sounds": [
+      {"name": "minecraft:ambient/weather/thunder1", "pitch": 0.5, "volume": 0.5},
+      {"name": "minecraft:ambient/weather/thunder2", "pitch": 0.5, "volume": 0.5},
+      {"name": "minecraft:ambient/weather/thunder3", "pitch": 0.45, "volume": 0.5}
+    ]
+  },
+  "entity.herobrine.vanish": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.vanish",
+    "sounds": [
+      {"name": "minecraft:mob/warden/listening_1", "pitch": 1.4, "volume": 0.7},
+      {"name": "minecraft:mob/warden/listening_3", "pitch": 1.4, "volume": 0.7},
+      {"name": "minecraft:mob/warden/listening_5", "pitch": 1.3, "volume": 0.7}
+    ]
+  },
+  "entity.herobrine.sting": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.sting",
+    "sounds": [
+      {"name": "minecraft:mob/ghast/scream1", "pitch": 0.45},
+      {"name": "minecraft:mob/ghast/scream3", "pitch": 0.45},
+      {"name": "minecraft:mob/ghast/scream5", "pitch": 0.4}
+    ]
+  },
+  "ambient.whisper": {
+    "subtitle": "subtitles.dontfollowthemap.ambient.whisper",
+    "sounds": [
+      {"name": "minecraft:ambient/cave/cave1", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave3", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave7", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave10", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave13", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave16", "volume": 0.8},
+      {"name": "minecraft:ambient/cave/cave19", "volume": 0.8}
+    ]
+  },
+  "entity.herobrine.blink": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.blink",
+    "sounds": [
+      {"name": "minecraft:mob/endermen/portal", "pitch": 0.6},
+      {"name": "minecraft:mob/endermen/portal2", "pitch": 0.6}
+    ]
+  },
+  "entity.herobrine.hurt": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.hurt",
+    "sounds": [
+      {"name": "minecraft:damage/hit1", "pitch": 0.7},
+      {"name": "minecraft:damage/hit2", "pitch": 0.7},
+      {"name": "minecraft:damage/hit3", "pitch": 0.7}
+    ]
+  },
+  "entity.herobrine.death": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.death",
+    "sounds": [
+      {"name": "minecraft:mob/ghast/moan1", "pitch": 0.4, "volume": 1.5},
+      {"name": "minecraft:mob/ghast/moan4", "pitch": 0.4, "volume": 1.5}
+    ]
+  },
+  "entity.herobrine.call": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.call",
+    "sounds": [
+      {"name": "minecraft:block/sculk_shrieker/shriek1", "pitch": 0.6},
+      {"name": "minecraft:block/sculk_shrieker/shriek3", "pitch": 0.6}
+    ]
+  },
+  "entity.possessed_sheep.ambient": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_sheep.ambient",
+    "sounds": [
+      {"name": "minecraft:mob/sheep/say1", "pitch": 0.45},
+      {"name": "minecraft:mob/sheep/say2", "pitch": 0.45},
+      {"name": "minecraft:mob/sheep/say3", "pitch": 0.4}
+    ]
+  },
+  "entity.possessed_sheep.attack": {
+    "subtitle": "subtitles.dontfollowthemap.entity.possessed_sheep.attack",
+    "sounds": [
+      {"name": "minecraft:mob/sheep/say1", "pitch": 0.3, "volume": 1.3},
+      {"name": "minecraft:mob/sheep/say3", "pitch": 0.3, "volume": 1.3}
+    ]
+  },
+  "entity.unseen.steal": {
+    "subtitle": "subtitles.dontfollowthemap.entity.unseen.steal",
+    "sounds": [
+      {"name": "minecraft:random/pop", "pitch": 0.5}
+    ]
+  },
+  "block.seal.refuse": {
+    "subtitle": "subtitles.dontfollowthemap.block.seal.refuse",
+    "sounds": [
+      {"name": "minecraft:ambient/cave/cave13", "pitch": 1.4, "volume": 0.6},
+      {"name": "minecraft:ambient/cave/cave16", "pitch": 1.4, "volume": 0.6}
+    ]
+  },
+  "block.seal.break": {
+    "subtitle": "subtitles.dontfollowthemap.block.seal.break",
+    "sounds": [
+      {"name": "minecraft:block/sculk_shrieker/shriek2", "pitch": 0.5},
+      {"name": "minecraft:block/sculk_shrieker/shriek4", "pitch": 0.5}
+    ]
+  },
+  "ambient.grave_wake": {
+    "subtitle": "subtitles.dontfollowthemap.ambient.grave_wake",
+    "sounds": [
+      {"name": "minecraft:mob/warden/heartbeat_1", "pitch": 0.9},
+      {"name": "minecraft:mob/warden/heartbeat_2", "pitch": 0.9},
+      {"name": "minecraft:mob/warden/heartbeat_3", "pitch": 0.9}
+    ]
+  }
+}

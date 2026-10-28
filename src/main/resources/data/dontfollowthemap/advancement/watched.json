@@ -1,0 +1,12 @@
+{
+  
+  "criteria": {"triggered": {"trigger": "minecraft:impossible"}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.watched.title"},
+    "description": {"translate": "advancements.dontfollowthemap.watched.description"},
+    "icon": {"id": "minecraft:ender_eye"},
+    "frame": "task",
+    "hidden": false,
+    "background": "minecraft:gui/advancements/backgrounds/stone", "announce_to_chat": false
+  }
+}

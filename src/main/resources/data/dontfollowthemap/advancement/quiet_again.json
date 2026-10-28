@@ -1,0 +1,16 @@
+{
+  "parent": "dontfollowthemap:free_him",
+  "criteria": {
+    "killed": {"trigger": "minecraft:player_killed_entity", "conditions": {"entity": {"type": "minecraft:entity_properties", "entity": "this", "predicate": {"minecraft:entity_type": "dontfollowthemap:herobrine"}}}},
+    "triggered": {"trigger": "minecraft:impossible"}
+  },
+  "requirements": [["killed", "triggered"]],
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.quiet_again.title"},
+    "description": {"translate": "advancements.dontfollowthemap.quiet_again.description"},
+    "icon": {"id": "dontfollowthemap:seal_fragment"},
+    "frame": "challenge",
+    "hidden": false
+  },
+  "rewards": {"experience": 100}
+}

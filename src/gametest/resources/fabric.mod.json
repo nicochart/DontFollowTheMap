@@ -1,0 +1,14 @@
+{
+	"schemaVersion": 1,
+	"id": "dontfollowthemap-gametest",
+	"version": "1.0.0",
+	"name": "Don't Follow the Map - game tests",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": ["fr.factionbedrock.dontfollowthemap.gametest.DFTMGameTests"],
+		"fabric-client-gametest": ["fr.factionbedrock.dontfollowthemap.gametest.DFTMClientGameTest"]
+	},
+	"depends": {
+		"dontfollowthemap": "*"
+	}
+}

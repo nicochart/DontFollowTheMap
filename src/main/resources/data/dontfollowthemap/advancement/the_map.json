@@ -1,0 +1,11 @@
+{
+  "parent": "dontfollowthemap:watched",
+  "criteria": {"triggered": {"trigger": "minecraft:impossible"}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.the_map.title"},
+    "description": {"translate": "advancements.dontfollowthemap.the_map.description"},
+    "icon": {"id": "minecraft:filled_map"},
+    "frame": "task",
+    "hidden": false
+  }
+}

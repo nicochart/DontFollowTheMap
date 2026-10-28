@@ -1,0 +1,11 @@
+{
+  "parent": "dontfollowthemap:the_map",
+  "criteria": {"triggered": {"trigger": "minecraft:impossible"}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.free_him.title"},
+    "description": {"translate": "advancements.dontfollowthemap.free_him.description"},
+    "icon": {"id": "dontfollowthemap:seal"},
+    "frame": "goal",
+    "hidden": false
+  }
+}

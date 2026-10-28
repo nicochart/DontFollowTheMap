@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "state=sealed": {"model": "dontfollowthemap:block/seal_sealed"},
+    "state=open": {"model": "dontfollowthemap:block/seal_open"},
+    "state=shattered": {"model": "dontfollowthemap:block/seal_shattered"}
+  }
+}
