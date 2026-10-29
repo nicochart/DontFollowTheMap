@@ -1,9 +1,9 @@
 package fr.factionbedrock.dontfollowthemap.entity;
 
 import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
+import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
-import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -356,7 +356,7 @@ public class ImitatorEntity extends PathfinderMob
             HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);
             DFTMAdvancements.award(serverPlayer, "unmasked");
         }
-        level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        HauntEvents.appearSuddenly(level, this.position());
         this.discard();
     }
 

@@ -107,7 +107,7 @@
   "commands.dontfollowthemap.trigger.failure": "%s n'a pas pu avoir lieu pour %s pour l'instant (pas d'endroit adapté autour ?)",
   "commands.dontfollowthemap.trigger.thief": "Dès le prochain bloc cassé par %s (en survie), quelque chose rôdera autour jusqu'à une minute pour voler ce qui tombe",
   "commands.dontfollowthemap.trigger.possession":"Herobrine possède maintenant un animal près de %2$s : %1$s, à %3$s blocs",
-  "commands.dontfollowthemap.trigger.no_animal": "Rien à posséder autour de %2$s (%1$s) : l'animal doit être adulte, à moins de 32 blocs, ni attaché, ni monté, ni sans IA",
+  "commands.dontfollowthemap.trigger.no_animal": "Rien à posséder autour de %2$s (%1$s) : aucun adulte à moins de 32 blocs (ni attaché, ni monté, ni sans IA), et nulle part hors de sa vue d'où en amener un (en extérieur seulement)",
   "commands.dontfollowthemap.locate_seal.planned": "Le sceau s'élèvera en %s (à %s blocs), dès que cet endroit sera chargé",
   "commands.dontfollowthemap.locate_seal.built": "Le sceau se trouve en %s (à %s blocs)",
   "commands.dontfollowthemap.locate_seal.none": "Aucun sceau actif : son emplacement est choisi quand la première carte est donnée, ou avec /dontfollowthemap generate-seal",

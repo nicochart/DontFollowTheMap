@@ -14,6 +14,7 @@ import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.Possession;
 import fr.factionbedrock.dontfollowthemap.haunting.GraveDigger;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
+import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
@@ -422,6 +423,26 @@ public class DFTMGameTests
     {
         Holder<T> value = animal.get(type);
         return value != null && value.is(variant);
+    }
+
+    @GameTest(maxTicks = 100, skyAccess = true, padding = 32)
+    public void possessionBringsAnAnimalWhenNoneIsLeft(GameTestHelper helper)
+    {
+        //the test area floats high above the ground: a wide floor, for the cow to come from
+        floor(helper, -26, 33, Blocks.STONE);
+        ServerPlayer player = player(helper, 4, 1, 4, 0.0F);
+        //the chunks around the player load first
+        helper.runAfterDelay(40, () ->
+        {
+            Animal possessed = HauntEvents.possessAnimal(player, List.of(PossessableAnimals.COW));
+            helper.assertTrue(possessed != null && possessed.getType() == DFTMEntities.POSSESSED_COW, "With no cow around, one must come, possessed");
+            double distance = possessed.distanceTo(player);
+            helper.assertTrue(distance >= 16.0D && distance <= 42.0D, "It must come from a little way off (" + (int) distance + " blocks)");
+            helper.assertTrue(HauntSpots.isHiddenFrom(player, possessed.getEyePosition()), "It must come from where the player can't see");
+            possessed.discard();
+            removePlayer(player);
+            helper.succeed();
+        });
     }
 
     //thief

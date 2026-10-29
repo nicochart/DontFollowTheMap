@@ -107,7 +107,7 @@
   "commands.dontfollowthemap.trigger.failure": "%s could not happen for %s right now (no suitable place around?)",
   "commands.dontfollowthemap.trigger.thief": "From the next block %s breaks (in survival), something will prowl around for up to a minute, stealing what falls",
   "commands.dontfollowthemap.trigger.possession":"Herobrine now possesses an animal near %2$s: %1$s, %3$s blocks away",
-  "commands.dontfollowthemap.trigger.no_animal": "Nothing to possess around %2$s (%1$s): the animal must be an adult within 32 blocks, not leashed, not ridden and not without AI",
+  "commands.dontfollowthemap.trigger.no_animal": "Nothing to possess around %2$s (%1$s): no adult within 32 blocks (not leashed, not ridden, not without AI), and nowhere out of their sight to bring one from (outdoors only)",
   "commands.dontfollowthemap.locate_seal.planned": "The seal will rise at %s (%s blocks away), as soon as this place is loaded",
   "commands.dontfollowthemap.locate_seal.built": "The seal stands at %s (%s blocks away)",
   "commands.dontfollowthemap.locate_seal.none": "No seal is active: its place is picked when the first map is given, or with /dontfollowthemap generate-seal",

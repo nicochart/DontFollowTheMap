@@ -18,6 +18,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -70,7 +71,9 @@ public class HauntingDirector
             DelayedTasks.clear();
             FORCED_THEFTS.clear();
             TunnelWatcher.clear();
+            HauntedSync.clear();
         });
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> HauntedSync.forget(handler.getPlayer()));
         ServerLivingEntityEvents.AFTER_DEATH.register(HauntingDirector::onDeath);
         EntitySleepEvents.START_SLEEPING.register(HauntingDirector::onStartSleeping);
         EntitySleepEvents.MODIFY_WAKE_UP_POSITION.register((entity, sleepingPos, bedState, wakeUpPos) -> entity instanceof ServerPlayer player ? onWakeUp(player, sleepingPos, wakeUpPos) : wakeUpPos);
@@ -104,6 +107,7 @@ public class HauntingDirector
         for (ServerPlayer player : server.getPlayerList().getPlayers())
         {
             WorldPeace.catchUp(player);
+            HauntedSync.update(player, canBeHaunted(player) && HauntingData.get(player).stage(now) != HauntingData.QUIET);
             SealMaps.throwAwayWorthless(player);
             //only the time spent in the overworld counts, and only there do scheduled events happen
             if (player.level().dimension() == Level.OVERWORLD && canBeHaunted(player)) {updatePlayer(player, now);}

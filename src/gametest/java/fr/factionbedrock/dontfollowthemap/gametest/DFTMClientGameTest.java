@@ -1,7 +1,11 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import fr.factionbedrock.dontfollowthemap.client.ClientHaunting;
+import fr.factionbedrock.dontfollowthemap.client.FakeHitboxes;
+import fr.factionbedrock.dontfollowthemap.client.HauntedScreen;
 import fr.factionbedrock.dontfollowthemap.client.HerobrineSounds;
+import fr.factionbedrock.dontfollowthemap.client.ScrambledCoordinates;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
@@ -16,18 +20,27 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.components.debug.DebugEntryPosition;
+import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
+import net.minecraft.client.gui.components.debug.DebugScreenEntries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 
@@ -97,9 +110,21 @@ public class DFTMClientGameTest implements FabricClientGameTest
                 ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
                 HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(2.5D, -60.0D, 18.5D), player, HerobrineApparitionEntity.Mode.WATCH, 600);
             });
-            context.waitTicks(15);
+            context.waitTicks(10);
+            context.runOnClient(client -> check(HauntedScreen.strength() > 0.0F && HauntedScreen.strength() < 0.5F, "The screen effect must come in gradually (" + HauntedScreen.strength() + ")"));
+            context.waitTicks(35);
             context.takeScreenshot("dftm_apparition");
-            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Close to him, the player must hear his ambience"));
+            context.runOnClient(client ->
+            {
+                check(HerobrineSounds.isAmbienceOn(), "Close to him, the player must hear his ambience");
+                check(HerobrineSounds.presence() > 0.8F, "Close to him and looking at him, the player must feel him fully (" + HerobrineSounds.presence() + ")");
+                check(client.gameRenderer.getAppliedPostEffects().contains(HauntedScreen.EFFECT), "Close to him, the screen must turn into an old film");
+                check(ScrambledCoordinates.isActive() && !positionLines(client).getFirst().equals(realPosition(client)), "With him around, the debug screen must lie about where the player is");
+                client.debugEntries.toggleDebugOverlay();
+            });
+            context.waitTicks(2);
+            context.takeScreenshot("dftm_debug_coordinates");
+            context.runOnClient(client -> client.debugEntries.toggleDebugOverlay());
             discardEverythingButPlayers(server);
 
             //his ambience from afar: not heard while he stands far behind the player, heard as soon as they look at him
@@ -109,13 +134,22 @@ public class DFTMClientGameTest implements FabricClientGameTest
                 HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, -39.5D), player, HerobrineApparitionEntity.Mode.WATCH, 600);
             });
             context.waitTicks(15);
-            context.runOnClient(client -> check(!HerobrineSounds.isAmbienceOn(), "Far behind the player, he must not be heard"));
+            context.runOnClient(client ->
+            {
+                check(!HerobrineSounds.isAmbienceOn(), "Far behind the player, he must not be heard");
+                check(HauntedScreen.strength() > 0.0F && HauntedScreen.strength() < 0.9F, "Once he is not felt any more, the screen effect must fade out, not stop at once (" + HauntedScreen.strength() + ")");
+            });
             server.runCommand("tp @a 0.5 -60 0.5 180 0");
             context.waitTicks(10);
-            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "The player looking at him from afar must hear his ambience"));
+            context.runOnClient(client ->
+            {
+                check(HerobrineSounds.isAmbienceOn(), "The player looking at him from afar must hear his ambience");
+                check(HerobrineSounds.presence() > 0.3F && HerobrineSounds.presence() < 0.8F, "From afar, he must be felt more faintly (" + HerobrineSounds.presence() + ")");
+            });
             discardEverythingButPlayers(server);
             server.runCommand("tp @a 0.5 -60 0.5 0 0");
             context.waitTicks(15);
+            context.runOnClient(client -> check(!ScrambledCoordinates.isActive() && positionLines(client).getFirst().equals(realPosition(client)), "With nothing of his around, the debug screen must tell the truth"));
 
             //a stalk: he waits right behind the player while the fog slowly thickens, up to the boss fight one
             server.runOnServer(minecraftServer ->
@@ -136,6 +170,19 @@ public class DFTMClientGameTest implements FabricClientGameTest
             discardEverythingButPlayers(server);
             //the fog lifts once he is gone
             context.waitTicks(20 * 5);
+
+            //a sudden apparition, on what the player just killed: the screen jolts at once, then settles down
+            context.runOnClient(client -> check(HauntedScreen.strength() == 0.0F, "With him gone for a while, the screen effect must be over"));
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                if (!HauntEvents.killApparition(player, player.position().add(0.0D, 0.0D, -4.0D))) {throw new AssertionError("He must appear on the corpse");}
+            });
+            context.waitTicks(2);
+            context.runOnClient(client -> check(HauntedScreen.strength() > 0.9F, "A sudden apparition must jolt the screen at once (" + HauntedScreen.strength() + ")"));
+            context.takeScreenshot("dftm_sudden_apparition");
+            context.waitTicks(30);
+            discardEverythingButPlayers(server);
 
             //an imitator at the crafting table: a default skin, the player being alone; then wearing the player's own skin and name
             server.runCommand("setblock 1 -60 5 minecraft:crafting_table");
@@ -261,7 +308,56 @@ public class DFTMClientGameTest implements FabricClientGameTest
                 check(map != null && SealMaps.shrineId(map) == planned.id(), "The maps must lead to it");
                 check(!fails(minecraftServer, "dontfollowthemap generate-seal") && SealMaps.isWorthless(minecraftServer, map), "A shrine never built leaves nothing behind: its maps are worthless at once");
             });
+
+            //a haunted player who shows the hitboxes (F3 + B) sees some that belong to nothing, besides the pig's
+            server.runCommand("summon minecraft:pig 0.5 -60 6.5 {NoAI:1b}");
+            server.runCommand("tp @a 0.5 -60 0.5 0 15");
+            server.runCommand("gamemode survival @a");
+            server.runCommand("dontfollowthemap stage @p 1");
+            context.waitTicks(30);
+            context.runOnClient(client ->
+            {
+                check(ClientHaunting.isHaunted(), "The server must tell the client that its player is haunted");
+                client.debugEntries.toggleStatus(DebugScreenEntries.ENTITY_HITBOXES);
+            });
+            context.waitTicks(10);
+            context.runOnClient(client -> check(FakeHitboxes.count() > 0, "Some hitboxes must belong to nothing"));
+            //the test screenshots are drawn apart, without the hitboxes: what the game shows is grabbed instead
+            context.runOnClient(client -> grabFrame(client, "dftm_fake_hitboxes.png"));
+            //one keeps behind the player
+            server.runCommand("tp @a 0.5 -60 0.5 180 15");
+            context.waitTicks(5);
+            context.runOnClient(client -> grabFrame(client, "dftm_fake_hitboxes_behind.png"));
+            context.waitTicks(5);
+            context.runOnClient(client -> client.debugEntries.toggleStatus(DebugScreenEntries.ENTITY_HITBOXES));
+            server.runCommand("gamemode creative @a");
         }
+    }
+
+    /** The last picture the game drew, as the player saw it (screenshots/name in the game directory). */
+    private static void grabFrame(Minecraft client, String name)
+    {
+        Screenshot.grab(client.gameDirectory, name, client.gameRenderer.mainRenderTarget(), 1, message -> {});
+    }
+
+    /** The position lines the debug screen (F3) would show right now. */
+    private static List<String> positionLines(Minecraft client)
+    {
+        List<String> lines = new ArrayList<>();
+        new DebugEntryPosition().display(new DebugScreenDisplayer()
+        {
+            @Override public void addPriorityLine(String line) {lines.add(line);}
+            @Override public void addLine(String line) {lines.add(line);}
+            @Override public void addToGroup(Identifier group, Collection<String> groupLines) {lines.addAll(groupLines);}
+            @Override public void addToGroup(Identifier group, String line) {lines.add(line);}
+        }, client.level, null, null);
+        return lines;
+    }
+
+    private static String realPosition(Minecraft client)
+    {
+        Entity camera = client.getCameraEntity();
+        return String.format(Locale.ROOT, "XYZ: %.3f / %.5f / %.3f", camera.getX(), camera.getY(), camera.getZ());
     }
 
     /** Runs a command as the server: whether it failed. */

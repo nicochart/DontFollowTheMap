@@ -3,7 +3,9 @@ package fr.factionbedrock.dontfollowthemap.haunting;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
+import fr.factionbedrock.dontfollowthemap.network.HerobrineAppearedPayload;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -17,6 +19,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Util;
+import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.Block;
@@ -264,14 +267,35 @@ public class HauntEvents
     //possessed animals
     /**
      * Herobrine takes over one of the animals of these kinds around the player, picked at random: the more of a kind, the likelier.
-     * Returns the possessed animal, or null if there was none to take.
+     * If there is none left (killed, eaten...), one comes from somewhere the player can't see. Returns the possessed animal, or null.
      */
     @Nullable public static Animal possessAnimal(ServerPlayer player, Collection<PossessableAnimals.Kind<?>> kinds)
     {
         if (kinds.isEmpty()) {return null;}
         List<Animal> animals = player.level().getEntitiesOfClass(Animal.class, player.getBoundingBox().inflate(32.0D, 12.0D, 32.0D), animal -> PossessableAnimals.canBePossessed(animal, kinds));
-        if (animals.isEmpty()) {return null;}
+        if (animals.isEmpty()) {return bringAnimal(player, List.copyOf(kinds));}
         return PossessableAnimals.possess(animals.get(player.getRandom().nextInt(animals.size())), player);
+    }
+
+    /** An animal of one of these kinds, out of the player's sight, on the ground 16 to 40 blocks away, already his. Outdoors only: animals don't come into caves. */
+    @Nullable private static Animal bringAnimal(ServerPlayer player, List<PossessableAnimals.Kind<?>> kinds)
+    {
+        ServerLevel level = player.level();
+        if (!level.canSeeSky(player.blockPosition().above())) {return null;}
+        RandomSource random = player.getRandom();
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            BlockPos spot = HauntSpots.findGround(level, player.getBlockX() + HauntSpots.randomOffset(random, 16, 28), player.getBlockZ() + HauntSpots.randomOffset(random, 16, 28), player.getBlockY(), true);
+            if (spot == null || !HauntSpots.isHiddenFrom(player, Vec3.atCenterOf(spot.above()))) {continue;}
+            Animal animal = kinds.get(random.nextInt(kinds.size())).plainType().create(level, EntitySpawnReason.EVENT);
+            if (animal == null) {return null;}
+            animal.snapTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D, random.nextFloat() * 360.0F, 0.0F);
+            //the variant of the place, like any animal born there (the first of a group is never a baby)
+            animal.finalizeSpawn(level, level.getCurrentDifficultyAt(spot), EntitySpawnReason.EVENT, null);
+            level.addFreshEntity(animal);
+            return PossessableAnimals.possess(animal, player);
+        }
+        return null;
     }
 
     //imitator
@@ -386,8 +410,18 @@ public class HauntEvents
         BlockPos standing = HauntSpots.isStandable(level, pos) ? pos : HauntSpots.isStandable(level, pos.above()) ? pos.above() : HauntSpots.findStandableDown(level, pos.getX(), pos.getZ(), pos.getY(), pos.getY() - 3);
         if (standing == null) {return false;}
         HerobrineApparitionEntity.spawn(level, new Vec3(corpse.x, standing.getY(), corpse.z), player, HerobrineApparitionEntity.Mode.FLASH, 22);
-        level.playSound(null, corpse.x, corpse.y, corpse.z, DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        appearSuddenly(level, corpse);
         return true;
+    }
+
+    /** Herobrine appears all of a sudden here: his appearance sound, and the screens of the players around jolt (client/HauntedScreen). */
+    public static void appearSuddenly(ServerLevel level, Vec3 pos)
+    {
+        level.playSound(null, pos.x, pos.y, pos.z, DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        for (ServerPlayer nearby : level.getPlayers(player -> player.distanceToSqr(pos) < 24.0D * 24.0D))
+        {
+            if (ServerPlayNetworking.canSend(nearby, HerobrineAppearedPayload.TYPE)) {ServerPlayNetworking.send(nearby, new HerobrineAppearedPayload());}
+        }
     }
 
     /** Herobrine stands next to the bed, and the player wakes up. */
@@ -401,7 +435,7 @@ public class HauntEvents
         HerobrineApparitionEntity apparition = HerobrineApparitionEntity.spawn(level, Vec3.atBottomCenterOf(spot), player, HerobrineApparitionEntity.Mode.FLASH, 30);
         apparition.faceTowards(player);
         player.stopSleepInBed(true, true);
-        level.playSound(null, spot, DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        appearSuddenly(level, Vec3.atCenterOf(spot));
         player.sendOverlayMessage(Component.translatable("message.dontfollowthemap.bed_scare"));
         return true;
     }

@@ -1,9 +1,12 @@
 package fr.factionbedrock.dontfollowthemap.client;
 
 import fr.factionbedrock.dontfollowthemap.network.FightStartingPayload;
+import fr.factionbedrock.dontfollowthemap.network.HauntedPayload;
+import fr.factionbedrock.dontfollowthemap.network.HerobrineAppearedPayload;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.minecraft.client.renderer.entity.ChickenRenderer;
@@ -27,6 +30,13 @@ public class DontFollowTheMapClient implements ClientModInitializer
         EntityRendererRegistry.register(DFTMEntities.IMITATOR, ImitatorRenderer::new);
         ClientTickEvents.END_CLIENT_TICK.register(StalkFog::tick);
         ClientTickEvents.END_CLIENT_TICK.register(HerobrineSounds::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(HauntedScreen::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(FakeHitboxes::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(ScrambledCoordinates::tick);
         ClientPlayNetworking.registerGlobalReceiver(FightStartingPayload.TYPE, (payload, context) -> HerobrineSounds.onFightStarting(payload.seal()));
+        ClientPlayNetworking.registerGlobalReceiver(HauntedPayload.TYPE, (payload, context) -> ClientHaunting.set(payload.haunted()));
+        ClientPlayNetworking.registerGlobalReceiver(HerobrineAppearedPayload.TYPE, (payload, context) -> HauntedScreen.jolt());
+        //a new server will tell
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientHaunting.set(false));
     }
 }

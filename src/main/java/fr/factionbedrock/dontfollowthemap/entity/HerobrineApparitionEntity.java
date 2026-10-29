@@ -1,5 +1,6 @@
 package fr.factionbedrock.dontfollowthemap.entity;
 
+import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
@@ -208,7 +209,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private void reveal(ServerLevel level, ServerPlayer target)
     {
         this.revealed = true;
-        level.playSound(null, this.getX(), this.getEyeY(), this.getZ(), DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        HauntEvents.appearSuddenly(level, this.getEyePosition());
         if (this.distanceToSqr(target) < 8.0D * 8.0D) {DFTMAdvancements.award(target, "knock_knock");}
     }
 
