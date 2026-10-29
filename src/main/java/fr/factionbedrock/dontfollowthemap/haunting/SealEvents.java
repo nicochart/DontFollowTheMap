@@ -4,11 +4,13 @@ import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.block.SealBlock;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
+import fr.factionbedrock.dontfollowthemap.network.FightStartingPayload;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -32,7 +34,8 @@ import org.jetbrains.annotations.Nullable;
 /** The map, the seal and what happens when it breaks. */
 public class SealEvents
 {
-    private static final int SUMMON_DELAY = 70;
+    /** From the seal breaking (or the call) to Herobrine's arrival. */
+    public static final int SUMMON_DELAY = 70;
     public static final double ARENA_RADIUS = 48.0D;
 
     /** Drops the seal map where an apparition vanished. */
@@ -90,9 +93,11 @@ public class SealEvents
     private static void startSummoning(ServerLevel level, BlockPos sealPos)
     {
         Vec3 center = Vec3.atBottomCenterOf(sealPos.above());
-        for (ServerPlayer nearby : level.getPlayers(p -> p.distanceToSqr(center) < ARENA_RADIUS * ARENA_RADIUS && !p.isSpectator()))
+        for (ServerPlayer nearby : level.getPlayers(p -> p.distanceToSqr(center) < ARENA_RADIUS * ARENA_RADIUS))
         {
-            nearby.addEffect(new MobEffectInstance(MobEffects.DARKNESS, SUMMON_DELAY + 40));
+            //the fight music starts now: it has risen by the time he appears
+            if (ServerPlayNetworking.canSend(nearby, FightStartingPayload.TYPE)) {ServerPlayNetworking.send(nearby, new FightStartingPayload(sealPos));}
+            if (!nearby.isSpectator()) {nearby.addEffect(new MobEffectInstance(MobEffects.DARKNESS, SUMMON_DELAY + 40));}
         }
         for (int i = 1; i <= 3; i++)
         {

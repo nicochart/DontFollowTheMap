@@ -18,7 +18,7 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 
 While Herobrine watches, his ambience is heard by whoever is close to him or looks at him, and only by them; he appears suddenly with his own sound.
 
-The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight with its own music
+The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight with its own music, which starts as soon as the seal breaks
 (blinks, marked lightning strikes, shades, darkness). Defeat him to get your stolen items back and some peace.
 If you run away, he goes back into the open seal; right-click it to call him again.
 

@@ -1,8 +1,10 @@
 package fr.factionbedrock.dontfollowthemap.client;
 
+import fr.factionbedrock.dontfollowthemap.network.FightStartingPayload;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.minecraft.client.renderer.entity.ChickenRenderer;
 import net.minecraft.client.renderer.entity.CowRenderer;
@@ -25,5 +27,6 @@ public class DontFollowTheMapClient implements ClientModInitializer
         EntityRendererRegistry.register(DFTMEntities.IMITATOR, ImitatorRenderer::new);
         ClientTickEvents.END_CLIENT_TICK.register(StalkFog::tick);
         ClientTickEvents.END_CLIENT_TICK.register(HerobrineSounds::tick);
+        ClientPlayNetworking.registerGlobalReceiver(FightStartingPayload.TYPE, (payload, context) -> HerobrineSounds.onFightStarting(payload.seal()));
     }
 }

@@ -2,23 +2,26 @@ package fr.factionbedrock.dontfollowthemap.client;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
+import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
+import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Herobrine's sounds that loop on each client: his ambience (a sighting, a stalk), heard by each player who is close to him
- * or looks at him, and by them only; and the music of the fight, for those around it. Each round starts before the previous one is over, so that they overlap
+ * or looks at him, and by them only; and the music of the fight, for those around it, from his summoning on. Each round starts before the previous one is over, so that they overlap
  * where their fades were made to. The offsets come from the sounds' editing project (tools/sounds/HerobrineSounds.kdenlive, 25 fps).
  */
 public class HerobrineSounds
@@ -37,6 +40,11 @@ public class HerobrineSounds
     private static final double FIGHT_RANGE = 64.0D;
     /** Looking at him: within 15 degrees of where the player looks. */
     private static final double LOOKING_COS = Math.cos(Math.toRadians(15.0D));
+    /** The summoning lasts until he appears; a little longer, in case he takes a few more ticks to show up on this client. */
+    private static final int SUMMONING_TICKS = SealEvents.SUMMON_DELAY + 30;
+
+    @Nullable private static BlockPos summoningSeal;
+    private static int summoningTicks;
 
     public static void tick(Minecraft minecraft)
     {
@@ -45,10 +53,12 @@ public class HerobrineSounds
         {
             AMBIENCE.reset();
             FIGHT_MUSIC.reset();
+            summoningTicks = 0;
             return;
         }
         //the sounds are paused too
         if (minecraft.isPaused()) {return;}
+        if (summoningTicks > 0) {summoningTicks--;}
         boolean fight = isNearTheFight(minecraft.level, player);
         FIGHT_MUSIC.tick(minecraft, fight);
         AMBIENCE.tick(minecraft, !fight && isNearOrLookingAtHim(minecraft.level, player));
@@ -58,9 +68,17 @@ public class HerobrineSounds
     public static boolean isFightMusicOn() {return FIGHT_MUSIC.isOn();}
     public static boolean isAmbienceOn() {return AMBIENCE.isOn();}
 
-    /** A living Herobrine around: the fight is on (his death fades the music out). */
+    /** Herobrine is being summoned at that seal (see SealEvents): his music starts now, so that its rise is over by the time he appears. */
+    public static void onFightStarting(BlockPos seal)
+    {
+        summoningSeal = seal;
+        summoningTicks = SUMMONING_TICKS;
+    }
+
+    /** Herobrine on his way, or a living Herobrine around: the fight is on (his death fades the music out). */
     private static boolean isNearTheFight(ClientLevel level, LocalPlayer player)
     {
+        if (summoningTicks > 0 && summoningSeal != null && player.distanceToSqr(Vec3.atCenterOf(summoningSeal)) < FIGHT_RANGE * FIGHT_RANGE) {return true;}
         for (Entity entity : level.entitiesForRendering())
         {
             if (entity instanceof HerobrineEntity herobrine && herobrine.isAlive() && herobrine.distanceToSqr(player) < FIGHT_RANGE * FIGHT_RANGE) {return true;}

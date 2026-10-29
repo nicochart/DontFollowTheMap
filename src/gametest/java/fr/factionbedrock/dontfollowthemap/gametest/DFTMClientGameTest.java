@@ -5,6 +5,7 @@ import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
+import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -174,6 +175,22 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runCommand("tp @a 0.5 -60 0.5 0 60");
             context.waitTicks(40);
             context.takeScreenshot("dftm_seal_map");
+
+            //the seal breaks: the fight music starts with the summoning, before he is there
+            BlockPos seal = new BlockPos(0, -60, 8);
+            server.runCommand("setblock 0 -60 8 dontfollowthemap:seal");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerLevel level = minecraftServer.overworld();
+                SealEvents.breakSeal(level, seal, minecraftServer.getPlayerList().getPlayers().getFirst(), SealMaps.create(level, seal.getX(), seal.getZ()));
+            });
+            context.waitTicks(10);
+            server.runOnServer(minecraftServer -> check(SealEvents.findHerobrine(minecraftServer.overworld(), seal) == null, "Herobrine must not be there yet"));
+            context.runOnClient(client -> check(HerobrineSounds.isFightMusicOn(), "The fight music must start as soon as the seal breaks"));
+            context.waitTicks(SealEvents.SUMMON_DELAY);
+            server.runOnServer(minecraftServer -> check(SealEvents.findHerobrine(minecraftServer.overworld(), seal) != null, "Herobrine must come out of the seal"));
+            context.runOnClient(client -> check(HerobrineSounds.isFightMusicOn(), "The fight music must go on once he is there"));
+            discardEverythingButPlayers(server);
         }
     }
 
