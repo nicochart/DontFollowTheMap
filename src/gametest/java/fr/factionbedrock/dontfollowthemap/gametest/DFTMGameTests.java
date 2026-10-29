@@ -19,11 +19,13 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.TorchSwaps;
 import fr.factionbedrock.dontfollowthemap.haunting.TunnelWatcher;
+import fr.factionbedrock.dontfollowthemap.haunting.WorldPeace;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
 import fr.factionbedrock.dontfollowthemap.world.SealPiece;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -65,25 +67,25 @@ import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.WallSignBlock;
 import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignTextSlot;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
-import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -636,12 +638,12 @@ public class DFTMGameTests
         ServerPlayer player = player(helper, 4, 1, 6, 0.0F);
         BlockPos bottom = helper.absolutePos(new BlockPos(4, 1, 3)), top = bottom.above(), feet = helper.absolutePos(new BlockPos(4, 1, 2));
         helper.assertTrue(HauntEvents.wallUpTunnel(player, Direction.SOUTH), "The tunnel must be walled up behind the player");
-        helper.assertTrue(level.getBlockState(bottom).is(Blocks.STONE) && level.getBlockState(top).isAir(), "The bottom block first, made of the rock around");
+        helper.assertTrue(level.getBlockState(bottom).isCollisionShapeFullBlock(level, bottom) && level.getBlockState(top).isAir(), "The bottom block first");
         helper.startSequence()
                 .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) != null, "Then the top block, with Herobrine behind"))
                 .thenExecute(() ->
                 {
-                    helper.assertTrue(level.getBlockState(top).is(Blocks.STONE), "The top block must be put back with him");
+                    helper.assertTrue(level.getBlockState(top).equals(level.getBlockState(bottom)), "The top block must be put back with him");
                     helper.assertTrue(lurker(level, feet).isCrouching(), "He must crouch behind the wall");
                     helper.assertTrue(player.gameMode.destroyBlock(top), "The player must dig the top block");
                 })
@@ -676,7 +678,7 @@ public class DFTMGameTests
                 .thenExecute(() ->
                 {
                     helper.assertTrue(level.getBlockState(feet).is(Blocks.REDSTONE_TORCH), "A redstone torch must stand where he was");
-                    helper.assertTrue(level.getBlockState(bottom.above()).is(Blocks.STONE), "The top block must stay");
+                    helper.assertTrue(level.getBlockState(bottom.above()).isCollisionShapeFullBlock(level, bottom.above()), "The top block must stay");
                     removePlayer(player);
                 })
                 .thenSucceed();
@@ -725,25 +727,82 @@ public class DFTMGameTests
         return level.getEntitiesOfClass(HerobrineApparitionEntity.class, new AABB(feet), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.LURK).stream().findFirst().orElse(null);
     }
 
-    //seal and boss
-    @GameTest(maxTicks = 20, skyAccess = true, padding = 12)
-    public void sealShrineIsBuilt(GameTestHelper helper)
+    //seal shrine and boss
+    @GameTest(maxTicks = 200, skyAccess = true, padding = 12)
+    public void sealShrineIsBuiltOnDemandThenFallsIntoRuins(GameTestHelper helper)
     {
         ServerLevel level = helper.getLevel();
-        BlockPos origin = helper.absolutePos(new BlockPos(0, 3, 0));
-        for (int x = 0; x < SealPiece.SIZE; x++) {for (int z = 0; z < SealPiece.SIZE; z++) {level.setBlock(origin.offset(x, -3, z), Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);}}
-        SealPiece piece = new SealPiece(origin.getX(), origin.getY(), origin.getZ(), Direction.NORTH);
-        piece.postProcess(level, level.structureManager(), level.getChunkSource().getGenerator(), level.getRandom(), BoundingBox.infinite(), ChunkPos.containing(origin), origin);
-
-        BlockState seal = level.getBlockState(piece.getSealPos());
+        MinecraftServer server = level.getServer();
+        //snowy grass under a layer of snow, all around, with a patch of gravel in a corner
+        for (int x = -2; x <= SealPiece.SIZE + 1; x++)
+        {
+            for (int z = -2; z <= SealPiece.SIZE + 1; z++)
+            {
+                helper.setBlock(x, 0, z, Blocks.GRASS_BLOCK.defaultBlockState().setValue(BlockStateProperties.SNOWY, true));
+                helper.setBlock(x, 1, z, Blocks.SNOW);
+            }
+        }
+        helper.setBlock(-2, 0, -2, Blocks.GRAVEL);
+        helper.setBlock(-2, 1, -2, Blocks.AIR);
+        //right in front of it
+        ServerPlayer player = player(helper, SealPiece.CENTER, 1, SealPiece.SIZE + 1, 180.0F);
+        BlockPos center = helper.absolutePos(new BlockPos(SealPiece.CENTER, 1, SealPiece.CENTER));
+        runCommandAs(helper, player, String.format(Locale.ROOT, "dontfollowthemap generate-seal %d %d %d", center.getX(), center.getY(), center.getZ()));
+        SealShrines.Shrine shrine = SealShrines.get(server).active();
+        helper.assertTrue(shrine != null && shrine.stage() == SealShrines.Stage.BUILT && shrine.center().equals(center), "The command must build a shrine right there, the one the maps lead to");
+        BlockState seal = level.getBlockState(center);
         helper.assertTrue(seal.is(DFTMBlocks.SEAL) && seal.getValue(SealBlock.STATE) == SealBlock.State.SEALED, "The seal must stand in the middle of the shrine");
-        BoundingBox box = piece.getBoundingBox();
-        List<BlockPos> area = BlockPos.betweenClosedStream(box.minX(), box.minY() - 2, box.minZ(), box.maxX(), box.maxY(), box.maxZ()).map(BlockPos::immutable).toList();
+        List<BlockPos> area = BlockPos.betweenClosedStream(new AABB(center).inflate(SealPiece.CENTER, SealPiece.HEIGHT, SealPiece.CENTER)).map(BlockPos::immutable).toList();
         helper.assertTrue(area.stream().anyMatch(pos -> level.getBlockState(pos).is(Blocks.CHEST)), "Something must be buried under the seal");
         helper.assertTrue(area.stream().filter(pos -> level.getBlockState(pos).is(Blocks.SOUL_LANTERN)).count() == 4, "The four pillars must hold a soul lantern");
         boolean warning = area.stream().anyMatch(pos -> level.getBlockEntity(pos) instanceof SignBlockEntity sign && sign.isWaxed()
                 && sign.getText(SignTextSlot.FRONT).getMessages(false).get(1).getContents() instanceof TranslatableContents text && text.getKey().equals("sign.dontfollowthemap.shrine.1"));
         helper.assertTrue(warning, "The shrine must have its warning sign");
+        runCommandAs(helper, player, "dontfollowthemap locate-seal");
+
+        ItemStack map = SealMaps.create(level, player.blockPosition());
+        helper.assertTrue(map != null && SealMaps.shrineId(map) == shrine.id(), "The maps must lead to this shrine");
+        helper.assertTrue(SealShrines.opens(level, center, map) && !SealShrines.opens(level, center.east(), map), "A map must break its seal, and no other");
+        helper.assertTrue(SealShrines.isWatched(level, shrine), "The player right in front of it sees it");
+
+        //Herobrine is defeated there: the shrine falls into ruins (once nobody sees it), then its maps are worthless
+        SealShrines.onDefeated(level, center);
+        helper.assertTrue(SealShrines.get(server).active() == null, "Once he is defeated, the next map must pick a new place");
+        helper.assertFalse(SealMaps.isWorthless(server, map), "The maps stay good while the shrine stands");
+        long before = area.stream().filter(pos -> isShrineRemain(level, pos)).count();
+        SealShrines.fallIntoRuins(level, shrine);
+        long after = area.stream().filter(pos -> isShrineRemain(level, pos)).count();
+        helper.assertFalse(level.getBlockState(center).is(DFTMBlocks.SEAL) || area.stream().anyMatch(pos -> level.getBlockState(pos).is(Blocks.SOUL_LANTERN)), "The seal and the lanterns must be gone");
+        helper.assertTrue(after > 0 && after < before / 2, "Most of the shrine must be gone, a few stones staying as ruins (" + after + " of " + before + " blocks left)");
+        int floorY = center.getY() - 1;
+        helper.assertTrue(area.stream().filter(pos -> pos.getY() == floorY && !isShrineRemain(level, pos)).allMatch(pos -> level.getBlockState(pos).is(Blocks.GRASS_BLOCK) && level.getBlockState(pos.above()).is(Blocks.SNOW)),
+                "Where the floor was, the ground must come back as it is all around: snowy grass under a layer of snow, whatever lies in a corner");
+        helper.assertTrue(SealMaps.isWorthless(server, map), "Its maps must be worthless");
+
+        //a worthless map jumps out of the player's inventory, one dropped by an item frame lies there: nobody can take them, and they burn
+        player.getInventory().add(map.copy());
+        level.addFreshEntity(new ItemEntity(level, center.getX() + 3.5D, center.getY() + 1.0D, center.getZ() + 0.5D, map.copy()));
+        SealMaps.throwAwayWorthless(player);
+        helper.assertFalse(SealMaps.hasSealMap(player), "The worthless map must leave the player's inventory");
+        List<ItemEntity> maps = level.getEntitiesOfClass(ItemEntity.class, new AABB(center).inflate(16.0D), item -> SealMaps.isSealMap(item.getItem()));
+        helper.assertTrue(maps.size() == 2 && maps.stream().allMatch(ItemEntity::hasPickUpDelay), "Nobody can pick them up");
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(maps.stream().allMatch(item -> item.isOnFire() || item.isRemoved()), "They must catch fire"))
+                .thenWaitUntil(() -> helper.assertTrue(maps.stream().allMatch(ItemEntity::isRemoved), "Then burn away"))
+                .thenExecute(() -> removePlayer(player))
+                .thenSucceed();
+    }
+
+    private static boolean isShrineRemain(ServerLevel level, BlockPos pos) {return SealShrines.isShrineBlock(level.getBlockState(pos));}
+
+    @GameTest(maxTicks = 20)
+    public void sealShrineIsNeverPlannedInTheWrongBiome(GameTestHelper helper)
+    {
+        //the test world is a flat desert (the client test picks a place in plains)
+        SealShrines shrines = SealShrines.get(helper.getLevel().getServer());
+        SealShrines.Shrine active = shrines.active();
+        helper.assertTrue(SealShrines.plan(helper.getLevel(), helper.absolutePos(BlockPos.ZERO)) == null, "No place must be picked in a desert");
+        helper.assertTrue(shrines.active() == active, "A place not found must change nothing");
         helper.succeed();
     }
 
@@ -755,7 +814,8 @@ public class DFTMGameTests
         BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
         level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState(), Block.UPDATE_ALL);
         ServerPlayer player = player(helper, 1, 1, 1, 0.0F);
-        ItemStack map = SealMaps.create(level, seal.getX(), seal.getZ());
+        //breaking the seal doesn't look at which shrine the map leads to (the seal block does)
+        ItemStack map = SealMaps.create(level, new SealShrines.Shrine(-1, seal, Direction.NORTH, SealShrines.Stage.BUILT));
         helper.assertTrue(SealMaps.isSealMap(map), "The seal map must be recognized");
         helper.assertFalse(SealMaps.isSealMap(new ItemStack(Items.FILLED_MAP)), "A normal map is not a seal map");
 
@@ -805,6 +865,43 @@ public class DFTMGameTests
             golem.discard();
             helper.succeed();
         });
+    }
+
+    @GameTest(maxTicks = 20)
+    public void herobrineDefeatBringsPeaceToEveryone(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        MinecraftServer server = level.getServer();
+        long now = HauntingDirector.now(server);
+        //one fought him, one was far away (both had freed him); one more comes back later, with an old save
+        ServerPlayer fighter = player(helper, 1, 1, 1, 0.0F), away = player(helper, 2, 1, 1, 0.0F);
+        away.snapTo(away.getX() + 300.0D, away.getY(), away.getZ());
+        for (ServerPlayer player : List.of(fighter, away))
+        {
+            HauntingData data = HauntingData.get(player);
+            data.setStage(HauntingData.HUNTED, now);
+            data.sealState = HauntingData.FREED;
+        }
+        HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(1, 1, 3));
+        SealEvents.onHerobrineDefeated(level, herobrine);
+        int defeats = WorldPeace.get(server).defeats();
+
+        HauntingData fighterData = HauntingData.get(fighter), awayData = HauntingData.get(away);
+        helper.assertTrue(fighterData.stage(now) == HauntingData.QUIET && fighterData.sealState == HauntingData.SEALED && fighterData.defeats == 1 && fighterData.worldDefeats == defeats, "The one who fought him must get the peace");
+        WorldPeace.catchUp(away);
+        helper.assertTrue(awayData.stage(now) == HauntingData.QUIET && awayData.sealState == HauntingData.SEALED && awayData.defeats == 0, "The one far away must get the peace too, without having defeated him");
+        helper.assertTrue(!awayData.hasMapBeenDelivered() && awayData.worldDefeats == defeats, "...and a new map once the haunting starts over");
+        ServerPlayer late = player(helper, 3, 1, 1, 0.0F);
+        HauntingData lateData = HauntingData.get(late);
+        lateData.setStage(HauntingData.HUNTED, now);
+        lateData.sealState = HauntingData.FREED;
+        WorldPeace.catchUp(late);
+        helper.assertTrue(lateData.stage(now) == HauntingData.QUIET && lateData.sealState == HauntingData.SEALED, "The one who comes back later must get the peace too");
+
+        herobrine.discard();
+        level.getEntitiesOfClass(ItemEntity.class, new AABB(herobrine.blockPosition()).inflate(4.0D), item -> item.getItem().is(DFTMItems.SEAL_FRAGMENT)).forEach(ItemEntity::discard);
+        List.of(fighter, away, late).forEach(DFTMGameTests::removePlayer);
+        helper.succeed();
     }
 
     //helpers

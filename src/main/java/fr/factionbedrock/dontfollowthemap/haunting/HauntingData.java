@@ -38,6 +38,7 @@ public class HauntingData
             Codec.INT.optionalFieldOf("sightings", 0).forGetter(data -> data.sightings),
             Codec.INT.optionalFieldOf("seal_state", SEALED).forGetter(data -> data.sealState),
             Codec.INT.optionalFieldOf("defeats", 0).forGetter(data -> data.defeats),
+            Codec.INT.optionalFieldOf("world_defeats", 0).forGetter(data -> data.worldDefeats),
             ItemStack.CODEC.listOf().optionalFieldOf("stolen", List.of()).forGetter(data -> data.stolen)
     ).apply(instance, HauntingData::new));
 
@@ -53,12 +54,15 @@ public class HauntingData
     public long peaceUntil;
     public int sightings;
     public int sealState;
+    /** Herobrine's defeats this player took part in. */
     public int defeats;
+    /** Herobrine's defeats on the server this player got the peace of (see {@link WorldPeace}). */
+    public int worldDefeats;
     public final List<ItemStack> stolen;
 
-    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, List.of());}
+    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, 0, List.of());}
 
-    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long lastTunnel, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, List<ItemStack> stolen)
+    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long lastTunnel, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, int worldDefeats, List<ItemStack> stolen)
     {
         this.hauntTicks = hauntTicks;
         this.nextEventTime = nextEventTime;
@@ -73,6 +77,7 @@ public class HauntingData
         this.sightings = sightings;
         this.sealState = sealState;
         this.defeats = defeats;
+        this.worldDefeats = worldDefeats;
         this.stolen = new ArrayList<>(stolen);
     }
 
@@ -142,15 +147,25 @@ public class HauntingData
         }
     }
 
-    /** Called when the player defeated Herobrine: everything calms down for a while, then the haunting starts over. */
+    /** Called when the player defeated Herobrine (they were there). */
     public void onHerobrineDefeated(long now)
     {
-        DFTMConfig config = DFTMConfig.get();
         this.defeats++;
+        this.makePeace(now);
+    }
+
+    /**
+     * Herobrine was defeated at that time (by this player or anyone else): everything calms down for a while, then the haunting starts over.
+     * For a player who comes back after the peace is over, only the starting over is left.
+     */
+    public void makePeace(long defeatedAt)
+    {
+        DFTMConfig config = DFTMConfig.get();
         this.sealState = SEALED;
         this.mapDeliveredAt = -1L;
-        this.peaceUntil = now + (long) (config.peaceDaysAfterDefeat * DAY);
-        this.hauntTicks = (long) Math.ceil(config.graceDays * DAY);
+        this.peaceUntil = defeatedAt + (long) (config.peaceDaysAfterDefeat * DAY);
+        //back to the end of the grace period (a player still in it stays where they are)
+        this.hauntTicks = Math.min(this.hauntTicks, (long) Math.ceil(config.graceDays * DAY));
         this.nextEventTime = 0L;
         this.nextWhisperTime = 0L;
     }

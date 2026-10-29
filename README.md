@@ -18,9 +18,13 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 
 While Herobrine watches, his ambience is heard by whoever is close to him or looks at him, and only by them; he appears suddenly with his own sound.
 
-The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight with its own music, which starts as soon as the seal breaks
-(blinks, marked lightning strikes, shades, darkness). Defeat him to get your stolen items back and some peace.
-If you run away, he goes back into the open seal; right-click it to call him again.
+The map leads to a **seal shrine**. It isn't part of the world: it rises 250 to 500 blocks away when the first map is given
+(nobody stumbles upon it by chance), away from the players and their homes, and every map leads to it. Showing the map to the seal frees Herobrine:
+a three-phase fight with its own music, which starts as soon as the seal breaks (blinks, marked lightning strikes, shades, darkness).
+Defeating him brings peace to every player on the server for 10 days, even those who weren't there or come back later;
+those who fought him get their stolen items back. If you run away, he goes back into the open seal; right-click it to call him again.
+Once he is defeated, the shrine falls into ruins as soon as nobody is looking, and the maps leading to it burn when they leave a chest
+or an item frame; the next map leads to a new shrine.
 
 Everything is server side: the mod is needed on the server, and on clients to see the entities.
 
@@ -40,7 +44,9 @@ too), chances and durations can be changed, and `eventFrequency` speeds the haun
 - `/dontfollowthemap trigger possession [entity] [player]`: possesses an animal of that type (`minecraft:sheep`, `cow`, `pig`
   or `chicken`) near the player, or any of them when no type is given (for another player: `/execute as <player> run dontfollowthemap trigger possession`)
 - `/dontfollowthemap reset <player>`
-- `/locate structure dontfollowthemap:seal`
+- `/dontfollowthemap locate-seal`: where the seal shrine stands (or will rise); an error while no place is picked
+- `/dontfollowthemap generate-seal [position]`: a new shrine replaces the current one, somewhere around (built once its place is loaded),
+  or right at the given position (its center), now
 
 ## Building and testing
 

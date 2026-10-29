@@ -11,8 +11,10 @@ import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMAttachments;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.entity.event.v1.EntitySleepEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
@@ -29,6 +31,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -72,6 +75,7 @@ public class HauntingDirector
         EntitySleepEvents.START_SLEEPING.register(HauntingDirector::onStartSleeping);
         EntitySleepEvents.MODIFY_WAKE_UP_POSITION.register((entity, sleepingPos, bedState, wakeUpPos) -> entity instanceof ServerPlayer player ? onWakeUp(player, sleepingPos, wakeUpPos) : wakeUpPos);
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {if (player instanceof ServerPlayer serverPlayer) {onBlockBroken(serverPlayer, pos);}});
+        ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {if (entity instanceof ItemEntity item) {SealMaps.onItemLoaded(item);}});
     }
 
     /** The overworld game time: always ticking, saved with the world, the same for every dimension. */
@@ -95,9 +99,12 @@ public class HauntingDirector
                 if (!swaps.isEmpty()) {swaps.tick(level, level.getGameTime());}
             }
         }
+        SealShrines.tick(server.overworld());
         long now = now(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers())
         {
+            WorldPeace.catchUp(player);
+            SealMaps.throwAwayWorthless(player);
             //only the time spent in the overworld counts, and only there do scheduled events happen
             if (player.level().dimension() == Level.OVERWORLD && canBeHaunted(player)) {updatePlayer(player, now);}
         }

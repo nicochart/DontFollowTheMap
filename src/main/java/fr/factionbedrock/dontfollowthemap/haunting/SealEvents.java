@@ -10,6 +10,7 @@ import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -131,15 +132,18 @@ public class SealEvents
         return level.getEntitiesOfClass(HerobrineEntity.class, new AABB(sealPos).inflate(ARENA_RADIUS + 16.0D), herobrine -> herobrine.isAlive() && sealPos.equals(herobrine.getSealPos())).stream().findFirst().orElse(null);
     }
 
-    /** Herobrine died: the seal shatters, everyone around gets their stolen items back and some peace. */
+    /** Herobrine died: the seal shatters, everyone around gets their stolen items back, and every player on the server some peace. */
     public static void onHerobrineDefeated(ServerLevel level, HerobrineEntity herobrine)
     {
         BlockPos sealPos = herobrine.getSealPos();
         if (sealPos != null && level.getBlockState(sealPos).is(DFTMBlocks.SEAL))
         {
             level.setBlock(sealPos, level.getBlockState(sealPos).setValue(SealBlock.STATE, SealBlock.State.SHATTERED), Block.UPDATE_ALL);
+            SealShrines.onDefeated(level, sealPos);
         }
         long now = HauntingDirector.now(level.getServer());
+        //the other players get the same peace within a second, or as soon as they come back (WorldPeace.catchUp)
+        WorldPeace peace = WorldPeace.onHerobrineDefeated(level.getServer(), now);
         Vec3 pos = herobrine.position();
         for (ServerPlayer player : level.getPlayers(p -> p.distanceToSqr(pos) < 64.0D * 64.0D))
         {
@@ -147,6 +151,7 @@ public class SealEvents
             for (ItemStack stolen : data.stolen) {herobrine.spawnAtLocation(level, stolen.copy());}
             data.stolen.clear();
             data.onHerobrineDefeated(now);
+            data.worldDefeats = peace.defeats();
             DFTMAdvancements.award(player, "quiet_again");
             player.sendSystemMessage(Component.translatable("message.dontfollowthemap.defeated").withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
         }

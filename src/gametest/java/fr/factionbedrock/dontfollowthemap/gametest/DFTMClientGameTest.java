@@ -1,13 +1,17 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.factionbedrock.dontfollowthemap.client.HerobrineSounds;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
+import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
+import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
@@ -19,6 +23,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -184,8 +190,8 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runCommand("tp @a 0.5 -60 0.5 0 0");
             discardEverythingButPlayers(server);
 
-            //the shrine, seen from above
-            server.runCommand("place structure dontfollowthemap:seal 0 -60 40");
+            //the shrine, built on demand (centered on its seal), seen from above
+            server.runCommand("dontfollowthemap generate-seal 7 -60 39");
             server.runCommand("gamemode spectator @a");
             server.runCommand("tp @a 7.5 -49 27.5 0 42");
             singleplayer.getConnection().waitForChunksRender();
@@ -197,19 +203,19 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runOnServer(minecraftServer ->
             {
                 ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
-                player.setItemInHand(InteractionHand.MAIN_HAND, SealMaps.create(minecraftServer.overworld(), 7, 39));
+                player.setItemInHand(InteractionHand.MAIN_HAND, SealMaps.create(minecraftServer.overworld(), player.blockPosition()));
             });
             server.runCommand("tp @a 0.5 -60 0.5 0 60");
             context.waitTicks(40);
             context.takeScreenshot("dftm_seal_map");
 
             //the seal breaks: the fight music starts with the summoning, before he is there
-            BlockPos seal = new BlockPos(0, -60, 8);
-            server.runCommand("setblock 0 -60 8 dontfollowthemap:seal");
+            BlockPos seal = new BlockPos(7, -60, 39);
             server.runOnServer(minecraftServer ->
             {
                 ServerLevel level = minecraftServer.overworld();
-                SealEvents.breakSeal(level, seal, minecraftServer.getPlayerList().getPlayers().getFirst(), SealMaps.create(level, seal.getX(), seal.getZ()));
+                check(level.getBlockState(seal).is(DFTMBlocks.SEAL), "The seal must stand in the middle of the shrine");
+                SealEvents.breakSeal(level, seal, minecraftServer.getPlayerList().getPlayers().getFirst(), SealMaps.create(level, seal));
             });
             context.waitTicks(10);
             server.runOnServer(minecraftServer -> check(SealEvents.findHerobrine(minecraftServer.overworld(), seal) == null, "Herobrine must not be there yet"));
@@ -217,8 +223,56 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(SealEvents.SUMMON_DELAY);
             server.runOnServer(minecraftServer -> check(SealEvents.findHerobrine(minecraftServer.overworld(), seal) != null, "Herobrine must come out of the seal"));
             context.runOnClient(client -> check(HerobrineSounds.isFightMusicOn(), "The fight music must go on once he is there"));
+
+            //defeated: the shrine stands as long as someone sees it, then falls into ruins, and the maps leading to it burn
+            server.runOnServer(minecraftServer -> SealEvents.findHerobrine(minecraftServer.overworld(), seal).kill(minecraftServer.overworld()));
+            context.waitTicks(HerobrineEntity.DEATH_DURATION + 20);
+            server.runOnServer(minecraftServer -> check(minecraftServer.overworld().getBlockState(seal).is(DFTMBlocks.SEAL), "The shrine must stand while the player looks at it"));
+            //far away, looking the other way
+            server.runCommand("tp @a 0.5 -60 -60 180 0");
+            context.waitTicks(25);
+            server.runOnServer(minecraftServer ->
+            {
+                check(!minecraftServer.overworld().getBlockState(seal).is(DFTMBlocks.SEAL), "Once nobody sees it, the shrine must fall into ruins");
+                check(!SealMaps.hasSealMap(minecraftServer.getPlayerList().getPlayers().getFirst()), "The map leading to it must jump out of the player's inventory");
+            });
+            context.waitTicks(40);
+            context.takeScreenshot("dftm_seal_map_burning");
+            context.waitTicks(60);
+            server.runOnServer(minecraftServer -> check(minecraftServer.overworld().getEntitiesOfClass(ItemEntity.class, new AABB(-16.0D, -64.0D, -80.0D, 16.0D, -50.0D, -40.0D), item -> SealMaps.isSealMap(item.getItem())).isEmpty(), "The map must burn away"));
+            server.runCommand("gamemode spectator @a");
+            server.runCommand("tp @a 7.5 -49 27.5 0 42");
+            singleplayer.getConnection().waitForChunksRender();
+            context.waitTicks(20);
+            context.takeScreenshot("dftm_seal_shrine_ruins");
+            server.runCommand("gamemode creative @a");
             discardEverythingButPlayers(server);
+
+            //no seal any more, until the next map (or the command) picks a place for a new one, in these plains
+            server.runOnServer(minecraftServer ->
+            {
+                check(fails(minecraftServer, "dontfollowthemap locate-seal"), "/dontfollowthemap locate-seal must fail while no seal is active");
+                check(!fails(minecraftServer, "dontfollowthemap generate-seal") && !fails(minecraftServer, "dontfollowthemap locate-seal"), "/dontfollowthemap generate-seal must pick a place for a new seal");
+                SealShrines.Shrine planned = SealShrines.get(minecraftServer).active();
+                BlockPos spawn = minecraftServer.overworld().getRespawnData().globalPos().pos();
+                double distance = Math.sqrt(planned.center().distToLowCornerSqr(spawn.getX(), planned.center().getY(), spawn.getZ()));
+                check(planned.stage() == SealShrines.Stage.PLANNED && distance >= 240.0D && distance <= 510.0D, "The new seal must rise 250 to 500 blocks away, once its place is loaded (" + (int) distance + ")");
+                ItemStack map = SealMaps.create(minecraftServer.overworld(), spawn);
+                check(map != null && SealMaps.shrineId(map) == planned.id(), "The maps must lead to it");
+                check(!fails(minecraftServer, "dontfollowthemap generate-seal") && SealMaps.isWorthless(minecraftServer, map), "A shrine never built leaves nothing behind: its maps are worthless at once");
+            });
         }
+    }
+
+    /** Runs a command as the server: whether it failed. */
+    private static boolean fails(MinecraftServer server, String command)
+    {
+        try
+        {
+            server.getCommands().getDispatcher().execute(command, server.createCommandSourceStack());
+            return false;
+        }
+        catch (CommandSyntaxException e) {return true;}
     }
 
     /** A red sheep, a warm cow, a cold saddled pig and a cold chicken in a row 8 blocks ahead, facing the player, each shifted by offsetX. */

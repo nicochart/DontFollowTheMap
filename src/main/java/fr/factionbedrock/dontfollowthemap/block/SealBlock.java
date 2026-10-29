@@ -3,6 +3,7 @@ package fr.factionbedrock.dontfollowthemap.block;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -24,7 +25,7 @@ import net.minecraft.world.phys.BlockHitResult;
 
 /**
  * The seal at the heart of the shrine. Showing it the map breaks it and frees Herobrine.
- * Once he fled, the open seal can call him back; once he is defeated, the seal is shattered for good.
+ * Once he fled, the open seal can call him back; once he is defeated, the seal is shattered for good (and the shrine soon falls into ruins).
  */
 public class SealBlock extends Block
 {
@@ -41,7 +42,12 @@ public class SealBlock extends Block
     @Override protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hitResult)
     {
         if (state.getValue(STATE) != State.SEALED || !SealMaps.isSealMap(stack)) {return InteractionResult.TRY_WITH_EMPTY_HAND;}
-        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {SealEvents.breakSeal(serverLevel, pos, serverPlayer, stack);}
+        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer)
+        {
+            //only the seal the map leads to
+            if (!SealShrines.opens(serverLevel, pos, stack)) {return InteractionResult.TRY_WITH_EMPTY_HAND;}
+            SealEvents.breakSeal(serverLevel, pos, serverPlayer, stack);
+        }
         return InteractionResult.SUCCESS;
     }
 

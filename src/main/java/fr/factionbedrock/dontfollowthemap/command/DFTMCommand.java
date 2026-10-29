@@ -7,6 +7,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.Dynamic2CommandExceptionType;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
@@ -16,22 +17,30 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
+import fr.factionbedrock.dontfollowthemap.haunting.WorldPeace;
+import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.ResourceArgument;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentUtils;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -41,7 +50,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * /dontfollowthemap (operators only): status [player], stage <player> <0-3>, trigger <event> [player],
- * trigger possession [entity] [player], trigger whisper [sound] [player], reset <player>.
+ * trigger possession [entity] [player], trigger whisper [sound] [player], reset <player>, locate-seal, generate-seal [position].
  */
 public class DFTMCommand
 {
@@ -49,6 +58,9 @@ public class DFTMCommand
     private static final DynamicCommandExceptionType UNKNOWN_EVENT = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_event", name));
     private static final DynamicCommandExceptionType UNKNOWN_WHISPER = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_whisper", name));
     private static final Dynamic2CommandExceptionType NOT_POSSESSABLE = new Dynamic2CommandExceptionType((type, possessable) -> Component.translatable("commands.dontfollowthemap.not_possessable", type, possessable));
+    private static final SimpleCommandExceptionType NO_SEAL = new SimpleCommandExceptionType(Component.translatable("commands.dontfollowthemap.locate_seal.none"));
+    private static final SimpleCommandExceptionType NO_ROOM_FOR_SEAL = new SimpleCommandExceptionType(Component.translatable("commands.dontfollowthemap.generate_seal.no_room"));
+    private static final SimpleCommandExceptionType SEAL_IN_OVERWORLD_ONLY = new SimpleCommandExceptionType(Component.translatable("commands.dontfollowthemap.generate_seal.overworld"));
 
     public static void register()
     {
@@ -85,7 +97,53 @@ public class DFTMCommand
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .executes(context -> trigger(context, EntityArgument.getPlayer(context, "player"), StringArgumentType.getString(context, "event"))))))
                 .then(Commands.literal("reset")
-                        .then(Commands.argument("player", EntityArgument.player()).executes(context -> reset(context, EntityArgument.getPlayer(context, "player"))))));
+                        .then(Commands.argument("player", EntityArgument.player()).executes(context -> reset(context, EntityArgument.getPlayer(context, "player")))))
+                .then(Commands.literal("locate-seal").executes(DFTMCommand::locateSeal))
+                //a new seal shrine replaces the current one: somewhere around (built once its chunks are loaded), or right here, now
+                .then(Commands.literal("generate-seal")
+                        .executes(context -> generateSeal(context, null))
+                        .then(Commands.argument("position", BlockPosArgument.blockPos()).executes(context -> generateSeal(context, BlockPosArgument.getBlockPos(context, "position"))))));
+    }
+
+    private static int locateSeal(CommandContext<CommandSourceStack> context) throws CommandSyntaxException
+    {
+        SealShrines.Shrine shrine = SealShrines.get(context.getSource().getServer()).active();
+        if (shrine == null) {throw NO_SEAL.create();}
+        return showSeal(context, shrine, "commands.dontfollowthemap.locate_seal." + shrine.stage().getSerializedName());
+    }
+
+    private static int generateSeal(CommandContext<CommandSourceStack> context, @Nullable BlockPos position) throws CommandSyntaxException
+    {
+        CommandSourceStack source = context.getSource();
+        ServerLevel overworld = source.getServer().overworld();
+        if (source.getLevel() != overworld) {throw SEAL_IN_OVERWORLD_ONLY.create();}
+        SealShrines.Shrine shrine;
+        if (position == null)
+        {
+            shrine = SealShrines.plan(overworld, BlockPos.containing(source.getPosition()));
+            if (shrine == null) {throw NO_ROOM_FOR_SEAL.create();}
+        }
+        else
+        {
+            if (!SealShrines.isLoaded(overworld, position)) {throw BlockPosArgument.ERROR_NOT_LOADED.create();}
+            shrine = SealShrines.buildAt(overworld, position);
+        }
+        return showSeal(context, shrine, "commands.dontfollowthemap.generate_seal." + shrine.stage().getSerializedName());
+    }
+
+    /** Where it is, like /locate does: coordinates to click (to teleport there) and the distance. */
+    private static int showSeal(CommandContext<CommandSourceStack> context, SealShrines.Shrine shrine, String key)
+    {
+        BlockPos center = shrine.center();
+        String y = shrine.stage() == SealShrines.Stage.BUILT ? String.valueOf(center.getY()) : "~";
+        Vec3 from = context.getSource().getPosition();
+        int distance = Mth.floor(Math.sqrt(Mth.square(center.getX() + 0.5D - from.x) + Mth.square(center.getZ() + 0.5D - from.z)));
+        Component coordinates = ComponentUtils.wrapInSquareBrackets(Component.translatable("chat.coordinates", center.getX(), y, center.getZ()))
+                .withStyle(style -> style.withColor(ChatFormatting.GREEN)
+                        .withClickEvent(new ClickEvent.SuggestCommand("/tp @s " + center.getX() + " " + y + " " + center.getZ()))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.translatable("chat.coordinates.tooltip"))));
+        context.getSource().sendSuccess(() -> Component.translatable(key, coordinates, distance), false);
+        return distance;
     }
 
     /** The events triggered by name: the scheduled ones (except possession, which has its own syntax), then the others. */
@@ -141,7 +199,10 @@ public class DFTMCommand
 
     private static int reset(CommandContext<CommandSourceStack> context, ServerPlayer player)
     {
-        player.setAttached(fr.factionbedrock.dontfollowthemap.registry.DFTMAttachments.HAUNTING, new HauntingData());
+        HauntingData fresh = new HauntingData();
+        //a fresh start, not the peace of the last defeat
+        fresh.worldDefeats = WorldPeace.get(context.getSource().getServer()).defeats();
+        player.setAttached(fr.factionbedrock.dontfollowthemap.registry.DFTMAttachments.HAUNTING, fresh);
         context.getSource().sendSuccess(() -> Component.translatable("commands.dontfollowthemap.reset", player.getDisplayName()), true);
         return 1;
     }
