@@ -102,7 +102,7 @@
   "commands.dontfollowthemap.reset": "The haunting of %s was reset",
   "commands.dontfollowthemap.trigger.success": "Triggered %s for %s",
   "commands.dontfollowthemap.trigger.failure": "%s could not happen for %s right now (no suitable place around?)",
-  "commands.dontfollowthemap.trigger.thief": "Something will steal the drops of the next block %s breaks (in survival)",
+  "commands.dontfollowthemap.trigger.thief": "From the next block %s breaks (in survival), something will prowl around for up to a minute, stealing what falls",
   "commands.dontfollowthemap.trigger.possession":"Herobrine now possesses an animal near %2$s: %1$s, %3$s blocks away",
   "commands.dontfollowthemap.trigger.no_animal": "Nothing to possess around %2$s (%1$s): the animal must be an adult within 32 blocks, not leashed, not ridden and not without AI",
   "commands.dontfollowthemap.not_possessable": "%1$s can't be possessed (possessable animals: %2$s)",

@@ -58,6 +58,7 @@ import net.minecraft.world.entity.animal.pig.PigVariants;
 import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
@@ -361,8 +362,8 @@ public class DFTMGameTests
     }
 
     //thief
-    @GameTest(maxTicks = 200)
-    public void unseenStealsTheDropsAndGivesThemBackWhenCaught(GameTestHelper helper)
+    @GameTest(maxTicks = 400)
+    public void unseenTakesWhatFallsAroundThePlayerThenCanBeCaught(GameTestHelper helper)
     {
         ServerLevel level = helper.getLevel();
         floor(helper, 0, 7, Blocks.STONE);
@@ -370,6 +371,7 @@ public class DFTMGameTests
         //the test area is walled with barriers: the thief comes from inside it
         ItemEntity diamond = helper.spawnItem(Items.DIAMOND, new BlockPos(6, 1, 6));
         UnseenEntity unseen = UnseenEntity.spawn(level, helper.absolutePos(new BlockPos(1, 1, 6)), player, List.of(diamond));
+        unseen.setWanted(3);
         helper.startSequence()
                 .thenWaitUntil(() ->
                 {
@@ -378,10 +380,25 @@ public class DFTMGameTests
                 })
                 .thenExecute(() ->
                 {
+                    helper.assertFalse(unseen.hurtServer(level, level.damageSources().playerAttack(player), 1.0F), "Nothing can touch it before it has what it came for");
+                    helper.assertTrue(unseen.isAlive() && !unseen.isFleeing(), "With one stack out of three, it must keep following the player");
+                    //what falls next around the player
+                    helper.spawnItem(Items.EMERALD, new BlockPos(6, 1, 2));
+                    helper.spawnItem(Items.GOLD_INGOT, new BlockPos(2, 1, 2));
+                })
+                .thenWaitUntil(() -> helper.assertTrue(unseen.isFleeing(), "With three stacks, it must run away"))
+                .thenExecute(() ->
+                {
                     unseen.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
-                    helper.assertTrue(unseen.isRemoved(), "Caught, the thief must flee");
-                    helper.assertTrue(HauntingData.get(player).stolen.isEmpty(), "Caught, the thief must give back what it took");
-                    helper.assertTrue(!level.getEntitiesOfClass(ItemEntity.class, helper.getBounds().inflate(4.0D), item -> item.getItem().is(Items.DIAMOND)).isEmpty(), "The diamond must be dropped back");
+                    helper.assertTrue(unseen.isRemoved(), "Caught, the thief must vanish");
+                    helper.assertTrue(HauntingData.get(player).stolen.isEmpty(), "Caught, it must give back everything it took");
+                    AABB around = helper.getBounds().inflate(8.0D);
+                    for (Item item : List.of(Items.DIAMOND, Items.EMERALD, Items.GOLD_INGOT))
+                    {
+                        List<ItemEntity> dropped = level.getEntitiesOfClass(ItemEntity.class, around, entity -> entity.getItem().is(item));
+                        helper.assertTrue(!dropped.isEmpty(), "Everything it took must be dropped back");
+                        dropped.forEach(ItemEntity::discard);
+                    }
                     removePlayer(player);
                 })
                 .thenSucceed();
