@@ -32,6 +32,7 @@ public class HauntingData
             Codec.LONG.optionalFieldOf("last_bed_scare", Long.MIN_VALUE).forGetter(data -> data.lastBedScare),
             Codec.LONG.optionalFieldOf("last_grave", Long.MIN_VALUE).forGetter(data -> data.lastGrave),
             Codec.LONG.optionalFieldOf("last_theft", Long.MIN_VALUE).forGetter(data -> data.lastTheft),
+            Codec.LONG.optionalFieldOf("last_tunnel", Long.MIN_VALUE).forGetter(data -> data.lastTunnel),
             Codec.LONG.optionalFieldOf("map_delivered", -1L).forGetter(data -> data.mapDeliveredAt),
             Codec.LONG.optionalFieldOf("peace_until", 0L).forGetter(data -> data.peaceUntil),
             Codec.INT.optionalFieldOf("sightings", 0).forGetter(data -> data.sightings),
@@ -47,6 +48,7 @@ public class HauntingData
     public long lastBedScare;
     public long lastGrave;
     public long lastTheft;
+    public long lastTunnel;
     public long mapDeliveredAt;
     public long peaceUntil;
     public int sightings;
@@ -54,9 +56,9 @@ public class HauntingData
     public int defeats;
     public final List<ItemStack> stolen;
 
-    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, List.of());}
+    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, List.of());}
 
-    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, List<ItemStack> stolen)
+    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long lastTunnel, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, List<ItemStack> stolen)
     {
         this.hauntTicks = hauntTicks;
         this.nextEventTime = nextEventTime;
@@ -65,6 +67,7 @@ public class HauntingData
         this.lastBedScare = lastBedScare;
         this.lastGrave = lastGrave;
         this.lastTheft = lastTheft;
+        this.lastTunnel = lastTunnel;
         this.mapDeliveredAt = mapDeliveredAt;
         this.peaceUntil = peaceUntil;
         this.sightings = sightings;

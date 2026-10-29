@@ -17,6 +17,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Util;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BedBlock;
@@ -30,6 +31,7 @@ import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import fr.factionbedrock.dontfollowthemap.util.SignWriter;
 import org.jetbrains.annotations.Nullable;
@@ -306,6 +308,72 @@ public class HauntEvents
             }
         }
         return null;
+    }
+
+    //tunnels
+    /** How long he waits behind his wall before giving up. */
+    public static final int LURK_TICKS = 20 * 20;
+    private static final int WALL_MIN_DISTANCE = 3, WALL_MAX_DISTANCE = 6;
+    /** Between the bottom block and the top one: two distinct blows. */
+    private static final int WALL_BLOCK_INTERVAL = 8;
+
+    /**
+     * The player digs a straight 2x1 tunnel (forward: where they dig, the wall goes up behind them): two blocks are put back a few blocks behind them, loudly,
+     * and Herobrine crouches right behind this wall, his face behind its top block (see {@link HerobrineApparitionEntity.Mode#LURK} for what happens next).
+     */
+    public static boolean wallUpTunnel(ServerPlayer player, Direction forward)
+    {
+        if (hasActiveApparition(player)) {return false;}
+        ServerLevel level = player.level();
+        BlockPos feet = player.blockPosition();
+        Direction back = forward.getOpposite();
+        for (int distance = 1; distance <= WALL_MAX_DISTANCE; distance++)
+        {
+            BlockPos wall = feet.relative(back, distance);
+            //the tunnel stops there
+            if (!HauntSpots.isFree(level, wall) || !HauntSpots.isFree(level, wall.above())) {return false;}
+            if (distance < WALL_MIN_DISTANCE || !canWallUp(level, player, wall, forward)) {continue;}
+            BlockState rock = getWallState(wall);
+            putBack(level, wall, rock);
+            DelayedTasks.schedule(WALL_BLOCK_INTERVAL, () ->
+            {
+                if (!level.getBlockState(wall).equals(rock) || !level.getBlockState(wall.above()).isAir()) {return;}
+                putBack(level, wall.above(), rock);
+                HerobrineApparitionEntity.lurk(level, wall.relative(back), player, wall, LURK_TICKS);
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /** A wall here closes the tunnel off (rock all around a 1x2 hole), with room behind it for him, out of everyone's sight. */
+    private static boolean canWallUp(ServerLevel level, ServerPlayer player, BlockPos wall, Direction forward)
+    {
+        BlockPos top = wall.above(), lurk = wall.relative(forward.getOpposite());
+        if (!level.getBlockState(wall).isAir() || !level.getBlockState(top).isAir() || !HauntSpots.isStandable(level, lurk)) {return false;}
+        Direction left = forward.getCounterClockWise(), right = forward.getClockWise();
+        for (BlockPos around : List.of(wall.below(), top.above(), wall.relative(left), wall.relative(right), top.relative(left), top.relative(right)))
+        {
+            if (!level.getBlockState(around).isCollisionShapeFullBlock(level, around)) {return false;}
+        }
+        if (!HauntSpots.isHiddenFrom(player, Vec3.atCenterOf(top)) || !level.getEntitiesOfClass(LivingEntity.class, AABB.encapsulatingFullBlocks(wall, lurk.above())).isEmpty()) {return false;}
+        //nobody on the other side of the wall who would see him from behind
+        Vec3 center = Vec3.atCenterOf(wall), eyes = Vec3.atBottomCenterOf(lurk).add(0.0D, 1.27D, 0.0D);
+        return level.getPlayers(other -> other != player && !other.isSpectator() && other.distanceToSqr(center) < 32.0D * 32.0D
+                && other.position().subtract(center).dot(forward.getUnitVec3()) < 0.0D && HauntSpots.canSee(level, other.getEyePosition(), eyes)).isEmpty();
+    }
+
+    private static BlockState getWallState(BlockPos wall)
+    {
+        return (wall.getY() < 0 ? Blocks.CHISELED_DEEPSLATE : Blocks.COBBLESTONE).defaultBlockState();
+    }
+
+    /** Puts a block back, loudly: heard from twice as far as a block put down by a player. */
+    private static void putBack(ServerLevel level, BlockPos pos, BlockState rock)
+    {
+        level.setBlock(pos, rock, Block.UPDATE_ALL);
+        SoundType sound = rock.getSoundType();
+        level.playSound(null, pos, sound.getPlaceSound(), SoundSource.BLOCKS, sound.getVolume() + 1.0F, sound.getPitch() * 0.8F);
     }
 
     //apparitions caused by the player

@@ -14,6 +14,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -43,6 +44,13 @@ public class HerobrineRenderer extends HumanoidMobRenderer<Mob, HumanoidRenderSt
     }
 
     @Override public Identifier getTextureLocation(HumanoidRenderState state) {return STEVE;}
+
+    /** Crouching (behind a wall in a tunnel): a little lower, like a sneaking player, so that his feet stay on the ground. */
+    @Override public Vec3 getRenderOffset(HumanoidRenderState state)
+    {
+        Vec3 offset = super.getRenderOffset(state);
+        return state.isCrouching ? offset.add(0.0D, state.scale * -2.0F / 16.0D, 0.0D) : offset;
+    }
 
     @Override protected float getFlipDegrees() {return 0.0F;}
 

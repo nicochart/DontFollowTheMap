@@ -87,6 +87,8 @@
   "advancements.dontfollowthemap.possessed_chicken.description": "Recevoir un coup de bec d'une poule qui ne te quittait pas des yeux",
   "advancements.dontfollowthemap.unmasked.title": "Usurpation d'identité",
   "advancements.dontfollowthemap.unmasked.description": "Frapper quelqu'un qui se faisait passer pour un joueur",
+  "advancements.dontfollowthemap.knock_knock.title": "Toc toc",
+  "advancements.dontfollowthemap.knock_knock.description": "Découvrir qui t'a emmuré",
   "advancements.dontfollowthemap.rest_in_peace.title": "Repose en paix",
   "advancements.dontfollowthemap.rest_in_peace.description": "Te réveiller ailleurs que là où tu t'es endormi",
   "advancements.dontfollowthemap.free_him.title": "Tu l'as suivie",
@@ -106,6 +108,7 @@
   "commands.dontfollowthemap.trigger.thief": "Dès le prochain bloc cassé par %s (en survie), quelque chose rôdera autour jusqu'à une minute pour voler ce qui tombe",
   "commands.dontfollowthemap.trigger.possession":"Herobrine possède maintenant un animal près de %2$s : %1$s, à %3$s blocs",
   "commands.dontfollowthemap.trigger.no_animal": "Rien à posséder autour de %2$s (%1$s) : l'animal doit être adulte, à moins de 32 blocs, ni attaché, ni monté, ni sans IA",
+  "commands.dontfollowthemap.trigger.no_tunnel": "Pas de place autour de %s : il faut se tenir au sol dans un tunnel 2x1 tout droit, face au bout, avec au moins 4 blocs de tunnel derrière soi, sans regarder en arrière",
   "commands.dontfollowthemap.not_possessable": "Impossible de posséder cette entité (%1$s). Animaux possédables : %2$s",
   "commands.dontfollowthemap.unknown_event": "Événement inconnu : %s",
   "commands.dontfollowthemap.unknown_whisper": "Son de murmure inconnu : %s"

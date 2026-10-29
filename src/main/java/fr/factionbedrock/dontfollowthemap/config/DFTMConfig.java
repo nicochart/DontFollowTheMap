@@ -50,6 +50,8 @@ public class DFTMConfig
     public boolean imitators = true;
     public boolean thief = true;
     public double thiefChance = 0.03D;
+    public boolean tunnels = true;
+    public double tunnelChance = 0.04D;
     public boolean graves = true;
     public double graveChance = 0.15D;
 
@@ -86,6 +88,7 @@ public class DFTMConfig
         this.killApparitionChance = Math.clamp(this.killApparitionChance, 0.0D, 1.0D);
         this.bedScareChance = Math.clamp(this.bedScareChance, 0.0D, 1.0D);
         this.thiefChance = Math.clamp(this.thiefChance, 0.0D, 1.0D);
+        this.tunnelChance = Math.clamp(this.tunnelChance, 0.0D, 1.0D);
         this.graveChance = Math.clamp(this.graveChance, 0.0D, 1.0D);
         return this;
     }

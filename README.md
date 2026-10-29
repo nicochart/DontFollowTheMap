@@ -13,7 +13,7 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 |---|---|---|
 | Quiet | first day | nothing |
 | Watched | days 1 to 3 | Herobrine is seen in the distance, gone before you can reach him (or if you stare at him too long). Sounds behind you that only you hear: footsteps, a creeper's hiss, a zombie getting hit, someone mining, a tool breaking (one every 5 to 10 minutes, 3 to 7 once haunted, 2 to 5 once hunted; twice as long by day). Torches out of sight turn into redstone torches for a while. He may appear for an instant on what you just killed, or next to your bed when you try to sleep. |
-| Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you... Someone who looks like a player (a friend of yours, if they are online) uses your crafting table and your chests. Something invisible follows you for a while and steals what you mine: it can only be caught once it has what it came for, while it runs away. You may wake up in a grave. |
+| Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you... Someone who looks like a player (a friend of yours, if they are online) uses your crafting table and your chests. Something invisible follows you for a while and steals what you mine: it can only be caught once it has what it came for, while it runs away. While you dig a straight 2x1 tunnel, blocks may be put back behind you, loudly: dig through the top one quickly and you will see who did it; dig the bottom one first, or wait too long, and only a redstone torch will be left. You may wake up in a grave. |
 | Hunted | after day 6, or once he is free | Everything happens more often, and he waits right behind you while the fog slowly thickens. |
 
 While Herobrine watches, his ambience is heard by whoever is close to him or looks at him, and only by them; he appears suddenly with his own sound.
@@ -34,7 +34,8 @@ too), chances and durations can be changed, and `eventFrequency` speeds the haun
 - `/dontfollowthemap status [player]`
 - `/dontfollowthemap stage <player> <0-3>`
 - `/dontfollowthemap trigger <event> [player]`: `sighting`, `stalk`, `torches`, `sign`, `build`, `imitator`, `map`, `grave`,
-  `thief` (from the next block the player breaks in survival, the thief follows them and steals what falls)
+  `thief` (from the next block the player breaks in survival, the thief follows them and steals what falls),
+  `tunnel` (the player must stand in a straight 2x1 tunnel, facing where they dig: it is walled up behind them)
 - `/dontfollowthemap trigger whisper [sound] [player]`: `footsteps`, `creeper`, `zombie`, `mining` or `broken_tool`, any of them when no sound is given
 - `/dontfollowthemap trigger possession [entity] [player]`: possesses an animal of that type (`minecraft:sheep`, `cow`, `pig`
   or `chicken`) near the player, or any of them when no type is given (for another player: `/execute as <player> run dontfollowthemap trigger possession`)

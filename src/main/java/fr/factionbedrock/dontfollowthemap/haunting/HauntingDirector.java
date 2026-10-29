@@ -18,6 +18,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -50,6 +51,7 @@ public class HauntingDirector
     private static final long BED_SCARE_COOLDOWN = HauntingData.DAY / 2L;
     private static final long THEFT_COOLDOWN = 20L * 60L * 6L;
     private static final long GRAVE_COOLDOWN = HauntingData.DAY * 4L;
+    private static final long TUNNEL_COOLDOWN = HauntingData.DAY;
     private static final long MAP_REPLACEMENT_DELAY = HauntingData.DAY * 2L;
 
     public enum Event {SIGHTING, STALK, TORCHES, SIGN, BUILD, POSSESSION, IMITATOR}
@@ -64,6 +66,7 @@ public class HauntingDirector
         {
             DelayedTasks.clear();
             FORCED_THEFTS.clear();
+            TunnelWatcher.clear();
         });
         ServerLivingEntityEvents.AFTER_DEATH.register(HauntingDirector::onDeath);
         EntitySleepEvents.START_SLEEPING.register(HauntingDirector::onStartSleeping);
@@ -265,6 +268,30 @@ public class HauntingDirector
     public static void forceNextTheft(ServerPlayer player) {FORCED_THEFTS.add(player.getUUID());}
 
     private static void onBlockBroken(ServerPlayer player, BlockPos pos)
+    {
+        if (player.level().dimension() == Level.OVERWORLD)
+        {
+            long now = now(player.level().getServer());
+            TunnelWatcher.onBlockBroken(player, pos, now);
+            if (wallUpTunnel(player, now)) {return;}
+        }
+        steal(player, pos);
+    }
+
+    /** Digging a straight tunnel: once in a while, the tunnel is walled up behind the player, and Herobrine waits behind the wall. */
+    private static boolean wallUpTunnel(ServerPlayer player, long now)
+    {
+        DFTMConfig config = DFTMConfig.get();
+        if (!config.tunnels || !canBeHaunted(player)) {return false;}
+        HauntingData data = HauntingData.get(player);
+        if (data.stage(now) < HauntingData.HAUNTED || data.isOnCooldown(data.lastTunnel, TUNNEL_COOLDOWN, now)) {return false;}
+        Direction forward = TunnelWatcher.diggingDirection(player, now);
+        if (forward == null || player.getRandom().nextDouble() >= config.tunnelChance || !HauntEvents.wallUpTunnel(player, forward)) {return false;}
+        data.lastTunnel = now;
+        return true;
+    }
+
+    private static void steal(ServerPlayer player, BlockPos pos)
     {
         boolean forced = FORCED_THEFTS.contains(player.getUUID());
         if (!forced)

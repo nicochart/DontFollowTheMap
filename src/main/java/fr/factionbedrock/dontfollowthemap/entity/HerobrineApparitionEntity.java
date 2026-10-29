@@ -1,15 +1,18 @@
 package fr.factionbedrock.dontfollowthemap.entity;
 
+import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.util.Mth;
@@ -17,13 +20,18 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,11 +50,20 @@ public class HerobrineApparitionEntity extends PathfinderMob
         /** A brief flash (kill apparition, bed scare). */
         FLASH,
         /** Summoned by Herobrine during the fight: rushes at the player and vanishes on contact. */
-        SHADE
+        SHADE,
+        /**
+         * Crouching behind the wall he put up in the player's tunnel, his face right behind its top block: digging that one first shows him for an instant.
+         * If the bottom one goes first, or if nobody comes through in time, he is gone and a redstone torch stands where he was.
+         */
+        LURK
     }
 
     public static final float VANISH_DISTANCE = 10.0F;
     private static final int STARE_TICKS_TO_VANISH = 70;
+    /** How long he stays once the top block of his wall is dug. */
+    public static final int REVEAL_TICKS = 20;
+    /** Crouching like a player: his face is as high as the top block of a 2 high tunnel. */
+    private static final EntityDimensions CROUCHING_DIMENSIONS = EntityDimensions.scalable(0.6F, 1.5F).withEyeHeight(1.27F);
     /** The network id of the player it stalks (standing behind them), -1 if none: their client thickens its fog meanwhile. */
     private static final EntityDataAccessor<Integer> DATA_STALKED_PLAYER = SynchedEntityData.defineId(HerobrineApparitionEntity.class, EntityDataSerializers.INT);
     /** Whether it is one that stays and watches: each client plays Herobrine's ambience if its player is close to it or looks at it. */
@@ -58,6 +75,10 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private int stareTicks;
     private boolean leavesMap;
     private boolean vanished;
+    /** LURK: the bottom block of his wall (the top one is above it). */
+    @Nullable private BlockPos wall;
+    private boolean revealed;
+    private int revealTicks;
 
     public HerobrineApparitionEntity(EntityType<? extends HerobrineApparitionEntity> type, Level level)
     {
@@ -74,12 +95,21 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         HerobrineApparitionEntity apparition = new HerobrineApparitionEntity(DFTMEntities.APPARITION, level);
         apparition.mode = mode;
-        apparition.entityData.set(DATA_WATCHING, mode == Mode.WATCH);
+        apparition.entityData.set(DATA_WATCHING, mode == Mode.WATCH || mode == Mode.LURK);
+        if (mode == Mode.LURK) {apparition.setPose(Pose.CROUCHING);}
         apparition.targetId = target.getUUID();
         apparition.lifetime = lifetime;
         apparition.snapTo(pos.x, pos.y, pos.z, 0.0F, 0.0F);
         apparition.faceTowards(target);
         level.addFreshEntity(apparition);
+        return apparition;
+    }
+
+    /** Crouching on feet, behind the wall whose bottom block is wallBottom, for lifetime ticks at most: see {@link Mode#LURK}. */
+    public static HerobrineApparitionEntity lurk(ServerLevel level, BlockPos feet, ServerPlayer target, BlockPos wallBottom, int lifetime)
+    {
+        HerobrineApparitionEntity apparition = spawn(level, Vec3.atBottomCenterOf(feet), target, Mode.LURK, lifetime);
+        apparition.wall = wallBottom.immutable();
         return apparition;
     }
 
@@ -99,8 +129,13 @@ public class HerobrineApparitionEntity extends PathfinderMob
 
     public Mode getMode() {return this.mode;}
 
-    /** A sighting or a stalk, not a flash nor a shade (known on both sides). */
+    /** One that stays a while (a sighting, a stalk, one lurking behind a wall), not a flash nor a shade (known on both sides). */
     public boolean isWatching() {return this.entityData.get(DATA_WATCHING);}
+
+    /** LURK: the top block of his wall was dug, he is showing himself. */
+    public boolean isRevealed() {return this.revealed;}
+
+    @Override protected EntityDimensions getDefaultDimensions(Pose pose) {return pose == Pose.CROUCHING ? CROUCHING_DIMENSIONS : super.getDefaultDimensions(pose);}
 
     @Nullable public ServerPlayer getTargetPlayer()
     {
@@ -119,6 +154,11 @@ public class HerobrineApparitionEntity extends PathfinderMob
         if (target == null || !target.isAlive() || target.isSpectator() || target.level() != level || this.distanceToSqr(target) > 96.0D * 96.0D)
         {
             this.vanish(level, false);
+            return;
+        }
+        if (this.mode == Mode.LURK)
+        {
+            this.waitBehindWall(level, target);
             return;
         }
         if (this.tickCount >= this.lifetime)
@@ -145,6 +185,41 @@ public class HerobrineApparitionEntity extends PathfinderMob
                 this.vanish(level, true);
             }
         }
+    }
+
+    private void waitBehindWall(ServerLevel level, ServerPlayer target)
+    {
+        this.faceTowards(target);
+        if (this.revealed)
+        {
+            //gone in a flash, like he came
+            if (++this.revealTicks >= REVEAL_TICKS) {this.vanish(level, false);}
+            return;
+        }
+        if (this.wall == null) {this.vanish(level, false);}
+        else if (isDug(level, this.wall.above())) {this.reveal(level, target);}
+        //too soon (only his legs would show) or too late
+        else if (isDug(level, this.wall) || this.tickCount >= this.lifetime) {this.vanish(level, false);}
+    }
+
+    /** Mined, blown up...: nothing solid left there. */
+    private static boolean isDug(ServerLevel level, BlockPos pos) {return level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();}
+
+    private void reveal(ServerLevel level, ServerPlayer target)
+    {
+        this.revealed = true;
+        level.playSound(null, this.getX(), this.getEyeY(), this.getZ(), DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
+        if (this.distanceToSqr(target) < 8.0D * 8.0D) {DFTMAdvancements.award(target, "knock_knock");}
+    }
+
+    /** He didn't wait: a redstone torch stands where he crouched. */
+    private void leaveTorch(ServerLevel level)
+    {
+        BlockPos feet = this.blockPosition();
+        BlockState torch = Blocks.REDSTONE_TORCH.defaultBlockState();
+        if (!HauntSpots.isReplaceable(level, feet) || !torch.canSurvive(level, feet) || HauntSpots.isNearRedstoneSensitiveBlock(level, feet)) {return;}
+        level.setBlock(feet, torch, Block.UPDATE_ALL);
+        level.playSound(null, feet, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.15F, 0.6F);
     }
 
     private boolean isStaredAtBy(Player player)
@@ -179,6 +254,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
         ServerPlayer target = this.getTargetPlayer();
         boolean targetAround = target != null && target.level() == level && this.distanceToSqr(target) < 64.0D * 64.0D;
         if (this.leavesMap && targetAround) {SealEvents.leaveMap(level, this.position(), target);}
+        if (this.mode == Mode.LURK && !this.revealed) {this.leaveTorch(level);}
         //vanishing in a puff of smoke means the player came close or stared at it: they saw it
         if (this.mode == Mode.WATCH && withSmoke && targetAround) {DFTMAdvancements.award(target, "watched");}
         this.discard();

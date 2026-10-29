@@ -18,6 +18,7 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.TorchSwaps;
+import fr.factionbedrock.dontfollowthemap.haunting.TunnelWatcher;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
@@ -32,6 +33,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.gametest.framework.GameTestSequence;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
@@ -79,6 +81,7 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -594,6 +597,132 @@ public class DFTMGameTests
         helper.assertTrue(imitator.getSkinOwner() != null && imitator.getCustomName() == null, "A stranger has a default skin and no name");
         List.of(victim, near, far).forEach(DFTMGameTests::removePlayer);
         helper.succeed();
+    }
+
+    //tunnels
+    @GameTest(maxTicks = 40)
+    public void diggingAStraightTunnelIsNoticed(GameTestHelper helper)
+    {
+        rock(helper);
+        ServerPlayer digger = player(helper, 5, 1, 1, 0.0F), other = player(helper, 2, 1, 1, 0.0F);
+        //a 6 slices long tunnel dug southwards, one slice per tick, and a 4 slices long one next to it
+        GameTestSequence digging = helper.startSequence();
+        for (int z = 1; z <= 6; z++)
+        {
+            int slice = z;
+            digging.thenExecute(() -> dig(helper, digger, 5, slice)).thenIdle(1);
+        }
+        digging.thenExecute(() ->
+        {
+            for (int z = 1; z <= 4; z++) {dig(helper, other, 2, z);}
+            long now = HauntingDirector.now(helper.getLevel().getServer());
+            teleport(helper, digger, 5, 1, 6, 0.0F);
+            teleport(helper, other, 2, 1, 4, 0.0F);
+            helper.assertTrue(TunnelWatcher.diggingDirection(digger, now) == Direction.SOUTH, "A player digging a straight 2x1 tunnel must be noticed, with the direction they dig in");
+            helper.assertTrue(TunnelWatcher.diggingDirection(other, now) == null, "4 slices are not a tunnel yet");
+            helper.assertTrue(TunnelWatcher.diggingDirection(digger, now + 20L * 60L * 5L) == null, "A tunnel dug long ago is not being dug any more");
+            teleport(helper, digger, 5, 1, 1, 0.0F);
+            helper.assertTrue(TunnelWatcher.diggingDirection(digger, now) == null, "Walking back out of the tunnel is not digging it");
+            List.of(digger, other).forEach(DFTMGameTests::removePlayer);
+        }).thenSucceed();
+    }
+
+    @GameTest(maxTicks = 100)
+    public void tunnelIsWalledUpAndTheTopBlockShowsHim(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        rock(helper);
+        carve(helper, 4, 1, 6);
+        ServerPlayer player = player(helper, 4, 1, 6, 0.0F);
+        BlockPos bottom = helper.absolutePos(new BlockPos(4, 1, 3)), top = bottom.above(), feet = helper.absolutePos(new BlockPos(4, 1, 2));
+        helper.assertTrue(HauntEvents.wallUpTunnel(player, Direction.SOUTH), "The tunnel must be walled up behind the player");
+        helper.assertTrue(level.getBlockState(bottom).is(Blocks.STONE) && level.getBlockState(top).isAir(), "The bottom block first, made of the rock around");
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) != null, "Then the top block, with Herobrine behind"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getBlockState(top).is(Blocks.STONE), "The top block must be put back with him");
+                    helper.assertTrue(lurker(level, feet).isCrouching(), "He must crouch behind the wall");
+                    helper.assertTrue(player.gameMode.destroyBlock(top), "The player must dig the top block");
+                })
+                .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) != null && lurker(level, feet).isRevealed(), "Digging the top block first must show him"))
+                .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) == null, "He must be gone after an instant"))
+                .thenExecute(() ->
+                {
+                    helper.assertFalse(level.getBlockState(feet).is(Blocks.REDSTONE_TORCH), "Seen, he leaves no torch");
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(maxTicks = 100)
+    public void tunnelLurkerLeavesATorchWhenTheBottomBlockGoesFirst(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        rock(helper);
+        carve(helper, 4, 1, 6);
+        ServerPlayer player = player(helper, 4, 1, 6, 0.0F);
+        BlockPos bottom = helper.absolutePos(new BlockPos(4, 1, 3)), feet = helper.absolutePos(new BlockPos(4, 1, 2));
+        //looking back: no wall can go up unseen
+        teleport(helper, player, 4, 1, 6, 180.0F);
+        helper.assertFalse(HauntEvents.wallUpTunnel(player, Direction.SOUTH), "The wall must not go up before the player's eyes");
+        teleport(helper, player, 4, 1, 6, 0.0F);
+        //the command walls up the tunnel behind the player, the way they face
+        runCommandAs(helper, player, "dontfollowthemap trigger tunnel");
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) != null, "The command must wall up the tunnel, with Herobrine behind"))
+                .thenExecute(() -> helper.assertTrue(player.gameMode.destroyBlock(bottom), "The player must dig the bottom block"))
+                .thenWaitUntil(() -> helper.assertTrue(lurker(level, feet) == null, "Digging the bottom block first must make him leave"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getBlockState(feet).is(Blocks.REDSTONE_TORCH), "A redstone torch must stand where he was");
+                    helper.assertTrue(level.getBlockState(bottom.above()).is(Blocks.STONE), "The top block must stay");
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(maxTicks = 60)
+    public void tunnelLurkerLeavesATorchWhenNobodyComes(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        rock(helper);
+        carve(helper, 4, 1, 6);
+        ServerPlayer player = player(helper, 4, 1, 6, 0.0F);
+        BlockPos bottom = helper.absolutePos(new BlockPos(4, 1, 3)), feet = helper.absolutePos(new BlockPos(4, 1, 2));
+        level.setBlock(bottom, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(bottom.above(), Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+        HerobrineApparitionEntity lurker = HerobrineApparitionEntity.lurk(level, feet, player, bottom, 20);
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(lurker.isRemoved(), "He must not wait forever");
+            helper.assertTrue(level.getBlockState(feet).is(Blocks.REDSTONE_TORCH), "A redstone torch must stand where he was");
+            helper.assertTrue(level.getBlockState(bottom).is(Blocks.STONE) && level.getBlockState(bottom.above()).is(Blocks.STONE), "The wall must stay");
+            removePlayer(player);
+        });
+    }
+
+    /** The bottom of the test area filled with stone, to dig tunnels in (x and z from 0 to 7, y from 0 to 3). */
+    private static void rock(GameTestHelper helper)
+    {
+        for (int x = 0; x <= 7; x++) {for (int y = 0; y <= 3; y++) {for (int z = 0; z <= 7; z++) {helper.setBlock(x, y, z, Blocks.STONE);}}}
+    }
+
+    /** A 2x1 tunnel going south at this x, from fromZ to toZ, its floor at y = 0. */
+    private static void carve(GameTestHelper helper, int x, int fromZ, int toZ)
+    {
+        for (int z = fromZ; z <= toZ; z++) {helper.setBlock(x, 1, z, Blocks.AIR); helper.setBlock(x, 2, z, Blocks.AIR);}
+    }
+
+    /** The player digs the slice of 2x1 tunnel standing at this x and z (their own hands: the mod sees each block break). */
+    private static void dig(GameTestHelper helper, ServerPlayer player, int x, int z)
+    {
+        helper.assertTrue(player.gameMode.destroyBlock(helper.absolutePos(new BlockPos(x, 2, z))) && player.gameMode.destroyBlock(helper.absolutePos(new BlockPos(x, 1, z))), "The player must dig the tunnel");
+    }
+
+    @Nullable private static HerobrineApparitionEntity lurker(ServerLevel level, BlockPos feet)
+    {
+        return level.getEntitiesOfClass(HerobrineApparitionEntity.class, new AABB(feet), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.LURK).stream().findFirst().orElse(null);
     }
 
     //seal and boss

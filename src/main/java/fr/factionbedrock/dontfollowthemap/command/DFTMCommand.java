@@ -45,7 +45,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class DFTMCommand
 {
-    private static final List<String> EXTRA_EVENTS = List.of("map", "grave", "thief");
+    private static final List<String> EXTRA_EVENTS = List.of("map", "grave", "thief", "tunnel");
     private static final DynamicCommandExceptionType UNKNOWN_EVENT = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_event", name));
     private static final DynamicCommandExceptionType UNKNOWN_WHISPER = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_whisper", name));
     private static final Dynamic2CommandExceptionType NOT_POSSESSABLE = new Dynamic2CommandExceptionType((type, possessable) -> Component.translatable("commands.dontfollowthemap.not_possessable", type, possessable));
@@ -166,6 +166,16 @@ public class DFTMCommand
                 HauntingDirector.forceNextTheft(player);
                 context.getSource().sendSuccess(() -> Component.translatable("commands.dontfollowthemap.trigger.thief", player.getDisplayName()), true);
                 return 1;
+            }
+            case "tunnel" ->
+            {
+                //the tunnel the player stands in, whether they dug it or not: the wall goes up behind them
+                if (!HauntEvents.wallUpTunnel(player, player.getDirection()))
+                {
+                    context.getSource().sendFailure(Component.translatable("commands.dontfollowthemap.trigger.no_tunnel", player.getDisplayName()));
+                    return 0;
+                }
+                happened = true;
             }
             default ->
             {

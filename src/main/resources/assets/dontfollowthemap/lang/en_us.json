@@ -87,6 +87,8 @@
   "advancements.dontfollowthemap.possessed_chicken.description": "Get pecked by a chicken that kept staring at you",
   "advancements.dontfollowthemap.unmasked.title": "Identity Theft",
   "advancements.dontfollowthemap.unmasked.description": "Hit someone who was only pretending to be a player",
+  "advancements.dontfollowthemap.knock_knock.title": "Knock Knock",
+  "advancements.dontfollowthemap.knock_knock.description": "Find out who walled you in",
   "advancements.dontfollowthemap.rest_in_peace.title": "Rest in Peace",
   "advancements.dontfollowthemap.rest_in_peace.description": "Wake up somewhere you didn't fall asleep",
   "advancements.dontfollowthemap.free_him.title": "You Followed It",
@@ -106,6 +108,7 @@
   "commands.dontfollowthemap.trigger.thief": "From the next block %s breaks (in survival), something will prowl around for up to a minute, stealing what falls",
   "commands.dontfollowthemap.trigger.possession":"Herobrine now possesses an animal near %2$s: %1$s, %3$s blocks away",
   "commands.dontfollowthemap.trigger.no_animal": "Nothing to possess around %2$s (%1$s): the animal must be an adult within 32 blocks, not leashed, not ridden and not without AI",
+  "commands.dontfollowthemap.trigger.no_tunnel": "No room for it around %s: they must stand on the floor of a straight 2x1 tunnel, facing where they dig, with at least 4 blocks of tunnel behind them, and not look back",
   "commands.dontfollowthemap.not_possessable": "%1$s can't be possessed (possessable animals: %2$s)",
   "commands.dontfollowthemap.unknown_event": "Unknown event: %s",
   "commands.dontfollowthemap.unknown_whisper": "Unknown whisper sound: %s"

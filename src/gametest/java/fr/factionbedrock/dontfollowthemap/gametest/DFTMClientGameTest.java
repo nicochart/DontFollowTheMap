@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -155,6 +156,32 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(20);
             server.runCommand("setblock 1 -60 5 minecraft:air");
             server.runCommand("setblock -1 -60 5 minecraft:air");
+            discardEverythingButPlayers(server);
+
+            //a 2x1 tunnel dug southwards, walled up behind the player: the wall when they turn around, then his face once its top block is dug
+            server.runCommand("fill -2 -61 -2 2 -57 14 minecraft:stone");
+            server.runCommand("fill 0 -60 0 0 -59 12 minecraft:air");
+            server.runCommand("tp @a 0.5 -60 11.5 0 0");
+            server.runCommand("effect give @a minecraft:night_vision 60 0 true");
+            context.waitTicks(5);
+            server.runOnServer(minecraftServer ->
+            {
+                if (!HauntEvents.wallUpTunnel(minecraftServer.getPlayerList().getPlayers().getFirst(), Direction.SOUTH)) {throw new AssertionError("The tunnel must be walled up behind the player");}
+            });
+            context.waitTicks(15);
+            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Behind his wall, close to the player, he must be heard"));
+            server.runCommand("tp @a 0.5 -60 11.5 180 0");
+            context.waitTicks(5);
+            context.takeScreenshot("dftm_tunnel_walled_up");
+            //the wall is 3 blocks behind the player
+            server.runCommand("setblock 0 -59 8 minecraft:air");
+            context.waitTicks(3);
+            context.takeScreenshot("dftm_tunnel_top_block_dug");
+            context.waitTicks(HerobrineApparitionEntity.REVEAL_TICKS + 5);
+            server.runCommand("fill -2 -60 -2 2 -57 14 minecraft:air");
+            server.runCommand("fill -2 -61 -2 2 -61 14 minecraft:grass_block");
+            server.runCommand("effect clear @a minecraft:night_vision");
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
             discardEverythingButPlayers(server);
 
             //the shrine, seen from above

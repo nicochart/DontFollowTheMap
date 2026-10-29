@@ -1,0 +1,11 @@
+{
+  "parent": "dontfollowthemap:watched",
+  "criteria": {"triggered": {"trigger": "minecraft:impossible"}},
+  "display": {
+    "title": {"translate": "advancements.dontfollowthemap.knock_knock.title"},
+    "description": {"translate": "advancements.dontfollowthemap.knock_knock.description"},
+    "icon": {"id": "minecraft:stone_pickaxe"},
+    "frame": "task",
+    "hidden": true
+  }
+}
