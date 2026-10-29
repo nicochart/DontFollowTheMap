@@ -51,7 +51,8 @@
   "sign.dontfollowthemap.message.8.1": "JE",
   "sign.dontfollowthemap.message.8.2": "T'ATTENDS",
 
-  "subtitles.dontfollowthemap.entity.herobrine.presence": "Grondement sourd",
+  "subtitles.dontfollowthemap.entity.herobrine.ambient": "Présence inquiétante",
+  "subtitles.dontfollowthemap.entity.herobrine.appear": "Herobrine apparaît",
   "subtitles.dontfollowthemap.entity.herobrine.vanish": "Quelque chose disparaît",
   "subtitles.dontfollowthemap.entity.herobrine.sting": "Hurlement",
   "subtitles.dontfollowthemap.ambient.whisper": "Murmures",

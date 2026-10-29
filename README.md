@@ -12,11 +12,13 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 | Stage | When (default) | What happens |
 |---|---|---|
 | Quiet | first day | nothing |
-| Watched | days 1 to 3 | Herobrine is seen in the distance: a low rumble when you get closer, gone before you can reach him (or if you stare at him too long). Sounds behind you that only you hear: footsteps, a creeper's hiss, a zombie getting hit, someone mining, a tool breaking (one every 5 to 10 minutes, 3 to 7 once haunted, 2 to 5 once hunted; twice as long by day). Torches out of sight turn into redstone torches for a while. He may appear for an instant on what you just killed, or next to your bed when you try to sleep. |
+| Watched | days 1 to 3 | Herobrine is seen in the distance, gone before you can reach him (or if you stare at him too long). Sounds behind you that only you hear: footsteps, a creeper's hiss, a zombie getting hit, someone mining, a tool breaking (one every 5 to 10 minutes, 3 to 7 once haunted, 2 to 5 once hunted; twice as long by day). Torches out of sight turn into redstone torches for a while. He may appear for an instant on what you just killed, or next to your bed when you try to sleep. |
 | Haunted | days 3 to 6 | He leaves you **the map**. Signs and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you... Someone who looks like a player (a friend of yours, if they are online) uses your crafting table and your chests. Something invisible follows you for a while and steals what you mine: it can only be caught once it has what it came for, while it runs away. You may wake up in a grave. |
 | Hunted | after day 6, or once he is free | Everything happens more often, and he waits right behind you while the fog slowly thickens. |
 
-The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight
+While Herobrine watches, his ambience is heard by whoever is close to him or looks at him, and only by them; he appears suddenly with his own sound.
+
+The map leads to a **seal shrine**. Showing the map to the seal frees Herobrine: a three-phase fight with its own music
 (blinks, marked lightning strikes, shades, darkness). Defeat him to get your stolen items back and some peace.
 If you run away, he goes back into the open seal; right-click it to call him again.
 
@@ -51,7 +53,9 @@ Requires JDK 25.
 ```
 
 Textures are drawn by `tools/TextureGen.java` (`java tools/TextureGen.java`). Herobrine wears the game's own
-default skin with glowing eyes on top; every sound is a vanilla sound reshaped in `sounds.json`.
+default skin with glowing eyes on top. His ambience, his appearance sound and the fight music are the mod's own
+(`assets/dontfollowthemap/sounds`, edited in `tools/sounds/HerobrineSounds.kdenlive`); the other sounds are vanilla
+sounds reshaped in `sounds.json`.
 
 ## License
 

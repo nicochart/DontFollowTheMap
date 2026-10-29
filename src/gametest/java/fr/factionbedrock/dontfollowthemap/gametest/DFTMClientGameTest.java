@@ -1,5 +1,6 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
+import fr.factionbedrock.dontfollowthemap.client.HerobrineSounds;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
@@ -42,12 +43,15 @@ public class DFTMClientGameTest implements FabricClientGameTest
             singleplayer.getConnection().waitForChunksRender();
             context.waitTicks(20);
             context.takeScreenshot("dftm_herobrine_day");
+            context.runOnClient(client -> check(HerobrineSounds.isFightMusicOn(), "The fight music must play near Herobrine"));
             //his eyes glow in the dark, like the spider's
             server.runCommand("summon minecraft:spider 5.5 -60 7.5 {NoAI:1b,Rotation:[180f,0f]}");
             server.runCommand("time set midnight");
             context.waitTicks(20);
             context.takeScreenshot("dftm_herobrine_night");
             discardEverythingButPlayers(server);
+            context.waitTicks(15);
+            context.runOnClient(client -> check(!HerobrineSounds.isFightMusicOn(), "The fight music must stop once he is gone"));
 
             //each plain animal (left) next to its possessed twin (right): they must look exactly the same, wool, variant and saddle included
             server.runCommand("time set noon");
@@ -87,7 +91,23 @@ public class DFTMClientGameTest implements FabricClientGameTest
             });
             context.waitTicks(15);
             context.takeScreenshot("dftm_apparition");
+            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Close to him, the player must hear his ambience"));
             discardEverythingButPlayers(server);
+
+            //his ambience from afar: not heard while he stands far behind the player, heard as soon as they look at him
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, -39.5D), player, HerobrineApparitionEntity.Mode.WATCH, 600);
+            });
+            context.waitTicks(15);
+            context.runOnClient(client -> check(!HerobrineSounds.isAmbienceOn(), "Far behind the player, he must not be heard"));
+            server.runCommand("tp @a 0.5 -60 0.5 180 0");
+            context.waitTicks(10);
+            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "The player looking at him from afar must hear his ambience"));
+            discardEverythingButPlayers(server);
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            context.waitTicks(15);
 
             //a stalk: he waits right behind the player while the fog slowly thickens, up to the boss fight one
             server.runOnServer(minecraftServer ->
@@ -96,6 +116,7 @@ public class DFTMClientGameTest implements FabricClientGameTest
             });
             context.waitTicks(20);
             context.takeScreenshot("dftm_stalk_start");
+            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard"));
             context.waitTicks(20 * 10);
             context.takeScreenshot("dftm_stalk_thickening");
             context.waitTicks(20 * 10);
@@ -168,6 +189,11 @@ public class DFTMClientGameTest implements FabricClientGameTest
     private static void summon(TestServerContext server, String animal, double x, String tag, String data)
     {
         server.runCommand(String.format(Locale.ROOT, "summon minecraft:%s %.1f -60 8.5 {NoAI:1b,Rotation:[180f,0f],Tags:[\"%s\"],%s}", animal, x, tag, data));
+    }
+
+    private static void check(boolean condition, String message)
+    {
+        if (!condition) {throw new AssertionError(message);}
     }
 
     private static ImitatorEntity imitator(MinecraftServer server)

@@ -31,7 +31,7 @@ import java.util.UUID;
 
 /**
  * A Herobrine that is not really there. It never attacks (except the shades summoned during the fight):
- * it stares at one player, rumbles when they come close and vanishes before they can reach it.
+ * it stares at one player and vanishes before they can reach it. Whoever is close to it or looks at it hears his ambience (client/HerobrineSounds).
  */
 public class HerobrineApparitionEntity extends PathfinderMob
 {
@@ -49,6 +49,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private static final int STARE_TICKS_TO_VANISH = 70;
     /** The network id of the player it stalks (standing behind them), -1 if none: their client thickens its fog meanwhile. */
     private static final EntityDataAccessor<Integer> DATA_STALKED_PLAYER = SynchedEntityData.defineId(HerobrineApparitionEntity.class, EntityDataSerializers.INT);
+    /** Whether it is one that stays and watches: each client plays Herobrine's ambience if its player is close to it or looks at it. */
+    private static final EntityDataAccessor<Boolean> DATA_WATCHING = SynchedEntityData.defineId(HerobrineApparitionEntity.class, EntityDataSerializers.BOOLEAN);
 
     private Mode mode = Mode.WATCH;
     @Nullable private UUID targetId;
@@ -72,6 +74,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         HerobrineApparitionEntity apparition = new HerobrineApparitionEntity(DFTMEntities.APPARITION, level);
         apparition.mode = mode;
+        apparition.entityData.set(DATA_WATCHING, mode == Mode.WATCH);
         apparition.targetId = target.getUUID();
         apparition.lifetime = lifetime;
         apparition.snapTo(pos.x, pos.y, pos.z, 0.0F, 0.0F);
@@ -84,6 +87,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         super.defineSynchedData(builder);
         builder.define(DATA_STALKED_PLAYER, -1);
+        builder.define(DATA_WATCHING, false);
     }
 
     public void setLeavesMap(boolean leavesMap) {this.leavesMap = leavesMap;}
@@ -94,6 +98,9 @@ public class HerobrineApparitionEntity extends PathfinderMob
     public boolean isStalking(Player player) {return this.entityData.get(DATA_STALKED_PLAYER) == player.getId();}
 
     public Mode getMode() {return this.mode;}
+
+    /** A sighting or a stalk, not a flash nor a shade (known on both sides). */
+    public boolean isWatching() {return this.entityData.get(DATA_WATCHING);}
 
     @Nullable public ServerPlayer getTargetPlayer()
     {
@@ -125,8 +132,6 @@ public class HerobrineApparitionEntity extends PathfinderMob
         if (this.mode == Mode.WATCH)
         {
             if (distance < VANISH_DISTANCE) {this.vanish(level, true); return;}
-            //the low rumble, louder as the player gets closer
-            if (this.tickCount % 50 == 0 && distance < 28.0D) {level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.PRESENCE, SoundSource.HOSTILE, 2.0F, 0.85F + this.random.nextFloat() * 0.15F);}
             if (this.tickCount % 4 == 0) {this.stareTicks = this.isStaredAtBy(target) ? this.stareTicks + 4 : Math.max(0, this.stareTicks - 2);}
             if (this.stareTicks >= STARE_TICKS_TO_VANISH) {this.vanish(level, true);}
         }

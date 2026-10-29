@@ -6,10 +6,14 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvent;
 
-/** Every sound event points to vanilla sound files, reshaped (pitch, volume) in assets/dontfollowthemap/sounds.json. */
+/** Herobrine's own sounds, then vanilla sound files reshaped (pitch, volume) in assets/dontfollowthemap/sounds.json. */
 public class DFTMSounds
 {
-    public static final SoundEvent PRESENCE = register("entity.herobrine.presence");
+    //original sounds (assets/dontfollowthemap/sounds, made with tools/sounds/HerobrineSounds.kdenlive)
+    public static final SoundEvent HEROBRINE_AMBIENT = register("entity.herobrine.ambient");
+    public static final SoundEvent HEROBRINE_APPEAR = register("entity.herobrine.appear");
+    public static final SoundEvent HEROBRINE_FIGHT_MUSIC = register("music.herobrine_fight");
+    //reshaped vanilla sounds
     public static final SoundEvent VANISH = register("entity.herobrine.vanish");
     public static final SoundEvent STING = register("entity.herobrine.sting");
     public static final SoundEvent WHISPER = register("ambient.whisper");

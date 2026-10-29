@@ -318,7 +318,7 @@ public class HauntEvents
         BlockPos standing = HauntSpots.isStandable(level, pos) ? pos : HauntSpots.isStandable(level, pos.above()) ? pos.above() : HauntSpots.findStandableDown(level, pos.getX(), pos.getZ(), pos.getY(), pos.getY() - 3);
         if (standing == null) {return false;}
         HerobrineApparitionEntity.spawn(level, new Vec3(corpse.x, standing.getY(), corpse.z), player, HerobrineApparitionEntity.Mode.FLASH, 22);
-        level.playSound(null, corpse.x, corpse.y, corpse.z, DFTMSounds.STING, SoundSource.HOSTILE, 1.2F, 1.0F);
+        level.playSound(null, corpse.x, corpse.y, corpse.z, DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
         return true;
     }
 
@@ -333,7 +333,7 @@ public class HauntEvents
         HerobrineApparitionEntity apparition = HerobrineApparitionEntity.spawn(level, Vec3.atBottomCenterOf(spot), player, HerobrineApparitionEntity.Mode.FLASH, 30);
         apparition.faceTowards(player);
         player.stopSleepInBed(true, true);
-        level.playSound(null, spot, DFTMSounds.STING, SoundSource.HOSTILE, 1.5F, 0.9F);
+        level.playSound(null, spot, DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
         player.sendOverlayMessage(Component.translatable("message.dontfollowthemap.bed_scare"));
         return true;
     }

@@ -350,13 +350,13 @@ public class ImitatorEntity extends PathfinderMob
             this.setYBodyRot(this.getYHeadRot());
         }
         if (++this.stareTicks < STARE_TICKS) {return;}
-        //its real face, for an instant, in a low rumble
+        //its real face, for an instant
         if (player instanceof ServerPlayer serverPlayer)
         {
             HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);
             DFTMAdvancements.award(serverPlayer, "unmasked");
         }
-        level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.PRESENCE, SoundSource.HOSTILE, 2.0F, 0.8F);
+        level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.HEROBRINE_APPEAR, SoundSource.HOSTILE, 1.0F, 1.0F);
         this.discard();
     }
 

@@ -1,10 +1,21 @@
 {
-  "entity.herobrine.presence": {
-    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.presence",
+  "entity.herobrine.ambient": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.ambient",
     "sounds": [
-      {"name": "minecraft:ambient/weather/thunder1", "pitch": 0.5, "volume": 0.5},
-      {"name": "minecraft:ambient/weather/thunder2", "pitch": 0.5, "volume": 0.5},
-      {"name": "minecraft:ambient/weather/thunder3", "pitch": 0.45, "volume": 0.5}
+      {"name": "dontfollowthemap:herobrine/ambient1", "stream": true},
+      {"name": "dontfollowthemap:herobrine/ambient2", "stream": true},
+      {"name": "dontfollowthemap:herobrine/ambient3", "stream": true},
+      {"name": "dontfollowthemap:herobrine/ambient4", "stream": true},
+      {"name": "dontfollowthemap:herobrine/ambient5", "stream": true}
+    ]
+  },
+  "entity.herobrine.appear": {
+    "subtitle": "subtitles.dontfollowthemap.entity.herobrine.appear",
+    "sounds": ["dontfollowthemap:herobrine/appear"]
+  },
+  "music.herobrine_fight": {
+    "sounds": [
+      {"name": "dontfollowthemap:music/herobrine_fight", "stream": true}
     ]
   },
   "entity.herobrine.vanish": {

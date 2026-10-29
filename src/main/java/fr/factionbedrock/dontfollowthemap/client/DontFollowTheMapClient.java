@@ -24,5 +24,6 @@ public class DontFollowTheMapClient implements ClientModInitializer
         EntityRendererRegistry.register(DFTMEntities.UNSEEN, NoopRenderer::new);
         EntityRendererRegistry.register(DFTMEntities.IMITATOR, ImitatorRenderer::new);
         ClientTickEvents.END_CLIENT_TICK.register(StalkFog::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(HerobrineSounds::tick);
     }
 }

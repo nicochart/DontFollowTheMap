@@ -51,7 +51,8 @@
   "sign.dontfollowthemap.message.8.1": "I AM",
   "sign.dontfollowthemap.message.8.2": "WAITING",
 
-  "subtitles.dontfollowthemap.entity.herobrine.presence": "Low rumble",
+  "subtitles.dontfollowthemap.entity.herobrine.ambient": "Ominous presence",
+  "subtitles.dontfollowthemap.entity.herobrine.appear": "Herobrine appears",
   "subtitles.dontfollowthemap.entity.herobrine.vanish": "Something vanishes",
   "subtitles.dontfollowthemap.entity.herobrine.sting": "Scream",
   "subtitles.dontfollowthemap.ambient.whisper": "Whispers",

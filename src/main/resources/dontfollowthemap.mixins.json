@@ -3,7 +3,8 @@
 	"package": "fr.factionbedrock.dontfollowthemap.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
-		"AtmosphericFogEnvironmentMixin"
+		"AtmosphericFogEnvironmentMixin",
+		"MusicManagerMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
