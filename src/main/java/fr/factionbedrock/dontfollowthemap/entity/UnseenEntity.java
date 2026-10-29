@@ -179,7 +179,8 @@ public class UnseenEntity extends PathfinderMob
     /** Walks to the item. False if it can't get there. */
     private boolean chase(ItemEntity item)
     {
-        Path path = this.getNavigation().createPath(item, 1);
+        //right onto it: from the next block, it could stay just too far to take it
+        Path path = this.getNavigation().createPath(item, 0);
         //no path at all just means it can't look for one right now (in mid-air...): only a path falling short means out of reach
         if (path == null) {return true;}
         if (!path.canReach()) {return false;}

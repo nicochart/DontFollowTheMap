@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.factionbedrock.dontfollowthemap.block.SealBlock;
+import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
@@ -14,6 +15,7 @@ import fr.factionbedrock.dontfollowthemap.entity.possessed.Possession;
 import fr.factionbedrock.dontfollowthemap.haunting.GraveDigger;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
+import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.TorchSwaps;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
@@ -159,6 +161,62 @@ public class DFTMGameTests
             helper.assertEntityNotPresent(DFTMEntities.APPARITION);
             removePlayer(player);
         });
+    }
+
+    //whispers
+    @GameTest(maxTicks = 20)
+    public void whisperDelaysDependOnTheStageAndAreLongerByDay(GameTestHelper helper)
+    {
+        RandomSource random = helper.getLevel().getRandom();
+        double frequency = DFTMConfig.get().eventFrequency;
+        for (int i = 0; i < 200; i++)
+        {
+            assertBetween(helper, HauntingDirector.whisperDelay(HauntingData.WATCHED, false, random), 5, 10, frequency, "watched, by night");
+            assertBetween(helper, HauntingDirector.whisperDelay(HauntingData.WATCHED, true, random), 10, 20, frequency, "watched, by day");
+            assertBetween(helper, HauntingDirector.whisperDelay(HauntingData.HAUNTED, false, random), 3, 7, frequency, "haunted, by night");
+            assertBetween(helper, HauntingDirector.whisperDelay(HauntingData.HUNTED, true, random), 4, 10, frequency, "hunted, by day");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(maxTicks = 20)
+    public void whispersHaveTheirOwnClock(GameTestHelper helper)
+    {
+        //mock players always count as creative, which the haunting leaves alone: the clock is run by hand
+        ServerPlayer player = player(helper, 4, 1, 4, 0.0F);
+        long now = HauntingDirector.now(helper.getLevel().getServer());
+        HauntingData data = HauntingData.get(player);
+        data.setStage(HauntingData.WATCHED, now);
+        double frequency = DFTMConfig.get().eventFrequency;
+        HauntingDirector.updateWhispers(player, data, HauntingData.WATCHED, now);
+        assertBetween(helper, data.nextWhisperTime - now, 5, 20, frequency, "the first whisper");
+        //due, while no other event is
+        long planned = data.nextWhisperTime;
+        HauntingDirector.updateWhispers(player, data, HauntingData.WATCHED, planned - 1L);
+        helper.assertTrue(data.nextWhisperTime == planned, "No whisper before its time");
+        HauntingDirector.updateWhispers(player, data, HauntingData.WATCHED, planned);
+        assertBetween(helper, data.nextWhisperTime - planned, 5, 20, frequency, "the next whisper");
+        removePlayer(player);
+        helper.succeed();
+    }
+
+    @GameTest(maxTicks = 80)
+    public void everyWhisperCanBePlayed(GameTestHelper helper)
+    {
+        floor(helper, 0, 7, Blocks.STONE);
+        ServerPlayer player = player(helper, 4, 1, 4, 0.0F);
+        for (HauntEvents.Whisper whisper : HauntEvents.Whisper.values()) {helper.assertTrue(HauntEvents.whisper(player, whisper), "The whisper " + whisper + " must play");}
+        //the sounds that come one after the other are played later
+        helper.runAfterDelay(60, () ->
+        {
+            removePlayer(player);
+            helper.succeed();
+        });
+    }
+
+    private static void assertBetween(GameTestHelper helper, long ticks, int minMinutes, int maxMinutes, double frequency, String what)
+    {
+        helper.assertTrue(ticks >= (long) (minMinutes * 1200 / frequency) - 1 && ticks <= (long) (maxMinutes * 1200 / frequency) + 40, "Wrong delay for " + what + ": " + ticks + " ticks");
     }
 
     //torches

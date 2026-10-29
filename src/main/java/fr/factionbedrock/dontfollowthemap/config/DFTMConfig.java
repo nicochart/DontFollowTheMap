@@ -34,6 +34,7 @@ public class DFTMConfig
     public double peaceDaysAfterDefeat = 10.0D;
 
     //events
+    public boolean whispers = true;
     public boolean sightings = true;
     public boolean killApparitions = true;
     public double killApparitionChance = 0.06D;

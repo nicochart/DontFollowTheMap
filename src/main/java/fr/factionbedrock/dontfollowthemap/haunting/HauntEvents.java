@@ -23,6 +23,7 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RedstoneTorchBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.StandingSignBlock;
 import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
@@ -72,21 +73,56 @@ public class HauntEvents
     }
 
     //sounds only the player hears
+    /** What a whisper can be: always behind the player, and heard by them only. */
+    public enum Whisper {FOOTSTEPS, CREEPER, ZOMBIE, MINING, BROKEN_TOOL}
+
     public static boolean whisper(ServerPlayer player)
     {
+        Whisper[] whispers = Whisper.values();
+        return whisper(player, whispers[player.getRandom().nextInt(whispers.length)]);
+    }
+
+    public static boolean whisper(ServerPlayer player, Whisper whisper)
+    {
         RandomSource random = player.getRandom();
-        Vec3 behind = player.position().subtract(player.getViewVector(1.0F).multiply(3.0D, 0.0D, 3.0D));
-        if (random.nextBoolean()) {playSoundTo(player, DFTMSounds.WHISPER, behind.add(0.0D, 1.5D, 0.0D), 0.6F, 0.9F + random.nextFloat() * 0.2F);}
-        else
+        Vec3 backwards = Vec3.directionFromRotation(0.0F, player.getYRot()).reverse();
+        Vec3 behind = player.position().add(backwards.scale(3.0D));
+        switch (whisper)
         {
-            //footsteps on the block behind the player
-            BlockPos ground = BlockPos.containing(behind).below();
-            SoundEvent step = player.level().getBlockState(ground).getSoundType().getStepSound();
-            for (int i = 0; i < 4; i++)
+            case FOOTSTEPS ->
             {
-                Vec3 stepPos = behind.subtract(player.getViewVector(1.0F).multiply(i * 0.8D, 0.0D, i * 0.8D));
-                DelayedTasks.schedule(1 + i * 7, () -> playSoundTo(player, step, stepPos, 0.25F, 0.9F));
+                //on the block behind the player
+                SoundEvent step = player.level().getBlockState(BlockPos.containing(behind).below()).getSoundType().getStepSound();
+                for (int i = 0; i < 4; i++)
+                {
+                    Vec3 stepPos = behind.add(backwards.scale(i * 0.8D));
+                    DelayedTasks.schedule(1 + i * 7, () -> playSoundTo(player, step, stepPos, 0.25F, 0.9F));
+                }
             }
+            //a creeper about to explode, right behind
+            case CREEPER -> playSoundTo(player, SoundEvents.CREEPER_PRIMED, player.position().add(backwards.scale(2.0D)).add(0.0D, 1.0D, 0.0D), 1.0F, 0.5F);
+            case ZOMBIE ->
+            {
+                //something is hitting a zombie, a bit further
+                Vec3 fight = player.position().add(backwards.scale(Mth.nextDouble(random, 6.0D, 10.0D))).add(0.0D, 1.5D, 0.0D);
+                int delay = 1;
+                for (int hits = Mth.nextInt(random, 2, 3); hits > 0; hits--)
+                {
+                    float pitch = (random.nextFloat() - random.nextFloat()) * 0.2F + 1.0F;
+                    DelayedTasks.schedule(delay, () -> playSoundTo(player, SoundEvents.ZOMBIE_HURT, fight, 1.0F, pitch));
+                    delay += Mth.nextInt(random, 8, 14);
+                }
+            }
+            case MINING ->
+            {
+                //someone digging through stone or dirt: the blows of the tool, then the block breaking (vanilla volumes and pitches)
+                SoundType block = (random.nextBoolean() ? Blocks.STONE : Blocks.DIRT).defaultBlockState().getSoundType();
+                Vec3 digging = player.position().add(backwards.scale(4.0D)).add(0.0D, 0.5D, 0.0D);
+                int blows = Mth.nextInt(random, 4, 7);
+                for (int blow = 0; blow < blows; blow++) {DelayedTasks.schedule(1 + blow * 4, () -> playSoundTo(player, block.getHitSound(), digging, (block.getVolume() + 1.0F) / 8.0F, block.getPitch() * 0.5F));}
+                DelayedTasks.schedule(1 + blows * 4, () -> playSoundTo(player, block.getBreakSound(), digging, (block.getVolume() + 1.0F) / 2.0F, block.getPitch() * 0.8F));
+            }
+            case BROKEN_TOOL -> playSoundTo(player, SoundEvents.ITEM_BREAK.value(), behind.add(0.0D, 1.2D, 0.0D), 0.8F, 0.8F + random.nextFloat() * 0.4F);
         }
         return true;
     }

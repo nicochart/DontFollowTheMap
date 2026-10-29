@@ -97,7 +97,7 @@
   "stage.dontfollowthemap.1": "observé",
   "stage.dontfollowthemap.2": "hanté",
   "stage.dontfollowthemap.3": "traqué",
-  "commands.dontfollowthemap.status": "%1$s : %2$s, hanté depuis %3$s jours, %4$s apparitions, carte livrée : %5$s, Herobrine vaincu %6$s fois, %7$s piles volées, prochain événement dans %8$s s",
+  "commands.dontfollowthemap.status": "%1$s : %2$s, hanté depuis %3$s jours, %4$s apparitions, carte livrée : %5$s, Herobrine vaincu %6$s fois, %7$s piles volées, prochain événement dans %8$s s, prochain murmure dans %9$s s",
   "commands.dontfollowthemap.stage": "%s est maintenant %s",
   "commands.dontfollowthemap.reset": "La hantise de %s a été réinitialisée",
   "commands.dontfollowthemap.trigger.success": "%s déclenché pour %s",
@@ -106,5 +106,6 @@
   "commands.dontfollowthemap.trigger.possession":"Herobrine possède maintenant un animal près de %2$s : %1$s, à %3$s blocs",
   "commands.dontfollowthemap.trigger.no_animal": "Rien à posséder autour de %2$s (%1$s) : l'animal doit être adulte, à moins de 32 blocs, ni attaché, ni monté, ni sans IA",
   "commands.dontfollowthemap.not_possessable": "Impossible de posséder cette entité (%1$s). Animaux possédables : %2$s",
-  "commands.dontfollowthemap.unknown_event": "Événement inconnu : %s"
+  "commands.dontfollowthemap.unknown_event": "Événement inconnu : %s",
+  "commands.dontfollowthemap.unknown_whisper": "Son de murmure inconnu : %s"
 }

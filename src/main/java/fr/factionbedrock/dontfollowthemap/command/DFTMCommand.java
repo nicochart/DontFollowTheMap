@@ -32,6 +32,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Animal;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,13 +40,14 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * /dontfollowthemap (operators only):
- * status [player], stage <player> <0-3>, trigger <event> [player], trigger possession [entity] [player], reset <player>.
+ * /dontfollowthemap (operators only): status [player], stage <player> <0-3>, trigger <event> [player],
+ * trigger possession [entity] [player], trigger whisper [sound] [player], reset <player>.
  */
 public class DFTMCommand
 {
     private static final List<String> EXTRA_EVENTS = List.of("map", "grave", "thief");
     private static final DynamicCommandExceptionType UNKNOWN_EVENT = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_event", name));
+    private static final DynamicCommandExceptionType UNKNOWN_WHISPER = new DynamicCommandExceptionType(name -> Component.translatable("commands.dontfollowthemap.unknown_whisper", name));
     private static final Dynamic2CommandExceptionType NOT_POSSESSABLE = new Dynamic2CommandExceptionType((type, possessable) -> Component.translatable("commands.dontfollowthemap.not_possessable", type, possessable));
 
     public static void register()
@@ -71,6 +73,13 @@ public class DFTMCommand
                                         .executes(context -> triggerPossession(context, List.of(possessableAnimal(context)), context.getSource().getPlayerOrException()))
                                         .then(Commands.argument("player", EntityArgument.player())
                                                 .executes(context -> triggerPossession(context, List.of(possessableAnimal(context)), EntityArgument.getPlayer(context, "player"))))))
+                        //a whisper of the given sound, or of any of them
+                        .then(Commands.literal("whisper")
+                                .executes(context -> triggerWhisper(context, null, context.getSource().getPlayerOrException()))
+                                .then(Commands.argument("sound", StringArgumentType.word()).suggests((context, builder) -> SharedSuggestionProvider.suggest(whisperNames(), builder))
+                                        .executes(context -> triggerWhisper(context, whisperSound(context), context.getSource().getPlayerOrException()))
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(context -> triggerWhisper(context, whisperSound(context), EntityArgument.getPlayer(context, "player"))))))
                         .then(Commands.argument("event", StringArgumentType.word()).suggests((context, builder) -> SharedSuggestionProvider.suggest(eventNames(), builder))
                                 .executes(context -> trigger(context, context.getSource().getPlayerOrException(), StringArgumentType.getString(context, "event")))
                                 .then(Commands.argument("player", EntityArgument.player())
@@ -88,14 +97,38 @@ public class DFTMCommand
         return names;
     }
 
+    private static List<String> whisperNames()
+    {
+        List<String> names = new ArrayList<>();
+        for (HauntEvents.Whisper whisper : HauntEvents.Whisper.values()) {names.add(whisper.name().toLowerCase(Locale.ROOT));}
+        return names;
+    }
+
+    private static HauntEvents.Whisper whisperSound(CommandContext<CommandSourceStack> context) throws CommandSyntaxException
+    {
+        String name = StringArgumentType.getString(context, "sound");
+        try {return HauntEvents.Whisper.valueOf(name.toUpperCase(Locale.ROOT));}
+        catch (IllegalArgumentException e) {throw UNKNOWN_WHISPER.create(name);}
+    }
+
+    private static int triggerWhisper(CommandContext<CommandSourceStack> context, @Nullable HauntEvents.Whisper whisper, ServerPlayer player)
+    {
+        if (whisper == null) {HauntEvents.whisper(player);}
+        else {HauntEvents.whisper(player, whisper);}
+        String name = whisper == null ? "whisper" : "whisper " + whisper.name().toLowerCase(Locale.ROOT);
+        context.getSource().sendSuccess(() -> Component.translatable("commands.dontfollowthemap.trigger.success", name, player.getDisplayName()), true);
+        return 1;
+    }
+
     private static int status(CommandContext<CommandSourceStack> context, ServerPlayer player)
     {
         HauntingData data = HauntingData.get(player);
         long now = HauntingDirector.now(context.getSource().getServer());
         long nextEventSeconds = Math.max(0L, data.nextEventTime - now) / 20L;
+        long nextWhisperSeconds = Math.max(0L, data.nextWhisperTime - now) / 20L;
         String days = String.format(Locale.ROOT, "%.2f", (double) data.hauntTicks / HauntingData.DAY);
         context.getSource().sendSuccess(() -> Component.translatable("commands.dontfollowthemap.status", player.getDisplayName(),
-                Component.translatable("stage.dontfollowthemap." + data.stage(now)), days, data.sightings, data.hasMapBeenDelivered(), data.defeats, data.stolen.size(), nextEventSeconds), false);
+                Component.translatable("stage.dontfollowthemap." + data.stage(now)), days, data.sightings, data.hasMapBeenDelivered(), data.defeats, data.stolen.size(), nextEventSeconds, nextWhisperSeconds), false);
         return data.stage(now);
     }
 

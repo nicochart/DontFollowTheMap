@@ -52,7 +52,7 @@ public class HauntingDirector
     private static final long GRAVE_COOLDOWN = HauntingData.DAY * 4L;
     private static final long MAP_REPLACEMENT_DELAY = HauntingData.DAY * 2L;
 
-    public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, POSSESSION, IMITATOR}
+    public enum Event {SIGHTING, STALK, TORCHES, SIGN, BUILD, POSSESSION, IMITATOR}
 
     /** Players whose next mined drops will be stolen no matter what (set by the command, kept until it happens). */
     private static final Set<UUID> FORCED_THEFTS = new HashSet<>();
@@ -108,22 +108,32 @@ public class HauntingDirector
         if (data.hasMapBeenDelivered() && data.sealState == HauntingData.SEALED && (now / UPDATE_INTERVAL) % 5 == 0 && SealMaps.hasSealMap(player)) {DFTMAdvancements.award(player, "the_map");}
         int stage = data.stage(now);
         if (stage == HauntingData.QUIET) {return;}
+        if (DFTMConfig.get().whispers) {updateWhispers(player, data, stage, now);}
         if (data.nextEventTime == 0L) {data.nextEventTime = now + nextDelay(stage, player.getRandom()) / 2L;}
         if (now < data.nextEventTime) {return;}
         boolean happened = runScheduledEvent(player, data, stage);
         data.nextEventTime = now + (happened ? nextDelay(stage, player.getRandom()) : RETRY_DELAY);
     }
 
+    /** The whispers have their own clock: there is always one within the stage's delay (twice as long by day), whatever else happens. */
+    public static void updateWhispers(ServerPlayer player, HauntingData data, int stage, long now)
+    {
+        if (data.nextWhisperTime == 0L) {data.nextWhisperTime = now + whisperDelay(stage, player.level().isBrightOutside(), player.getRandom());}
+        if (now < data.nextWhisperTime) {return;}
+        HauntEvents.whisper(player);
+        data.nextWhisperTime = now + whisperDelay(stage, player.level().isBrightOutside(), player.getRandom());
+    }
+
+    /** Ticks before the next scheduled event: 5 to 10 minutes when watched, 3 to 7 when haunted, 2 to 5 when hunted. */
     private static long nextDelay(int stage, RandomSource random)
     {
-        long minutes = switch (stage)
-        {
-            case HauntingData.WATCHED -> Mth.nextInt(random, 5, 10);
-            case HauntingData.HAUNTED -> Mth.nextInt(random, 3, 7);
-            default -> Mth.nextInt(random, 2, 5);
-        };
-        return (long) (minutes * 60L * 20L / DFTMConfig.get().eventFrequency);
+        int minMinutes = switch (stage) {case HauntingData.WATCHED -> 5; case HauntingData.HAUNTED -> 3; default -> 2;};
+        int maxMinutes = switch (stage) {case HauntingData.WATCHED -> 10; case HauntingData.HAUNTED -> 7; default -> 5;};
+        return (long) (Mth.nextInt(random, minMinutes * 60 * 20, maxMinutes * 60 * 20) / DFTMConfig.get().eventFrequency);
     }
+
+    /** Ticks before the next whisper: the same delays as the events, doubled by day (in clear daylight). */
+    public static long whisperDelay(int stage, boolean day, RandomSource random) {return nextDelay(stage, random) * (day ? 2L : 1L);}
 
     public static boolean isMapDue(ServerPlayer player, HauntingData data, long now)
     {
@@ -163,7 +173,6 @@ public class HauntingDirector
         boolean enabled = switch (event)
         {
             case SIGHTING, STALK -> config.sightings;
-            case WHISPER -> true;
             case TORCHES -> config.torchSwaps;
             case SIGN -> config.signs;
             case BUILD -> config.builds;
@@ -173,9 +182,9 @@ public class HauntingDirector
         if (!enabled) {return 0;}
         return switch (stage)
         {
-            case HauntingData.WATCHED -> switch (event) {case SIGHTING -> 6; case WHISPER, TORCHES -> 3; default -> 0;};
-            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case WHISPER -> 2; case TORCHES, SIGN -> 3; case BUILD, POSSESSION, IMITATOR -> 2; default -> 0;};
-            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, POSSESSION, IMITATOR -> 3; case SIGN -> 2; case WHISPER -> 1;};
+            case HauntingData.WATCHED -> switch (event) {case SIGHTING -> 6; case TORCHES -> 3; default -> 0;};
+            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case TORCHES, SIGN -> 3; case BUILD, POSSESSION, IMITATOR -> 2; default -> 0;};
+            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, POSSESSION, IMITATOR -> 3; case SIGN -> 2;};
         };
     }
 
@@ -186,7 +195,6 @@ public class HauntingDirector
         {
             case SIGHTING -> HauntEvents.sighting(player, stage, false);
             case STALK -> HauntEvents.stalk(player);
-            case WHISPER -> HauntEvents.whisper(player);
             case TORCHES -> HauntEvents.swapTorches(player, 2 + 2 * Math.max(0, stage - 1));
             case SIGN -> HauntEvents.placeSign(player);
             case BUILD -> HauntEvents.build(player);

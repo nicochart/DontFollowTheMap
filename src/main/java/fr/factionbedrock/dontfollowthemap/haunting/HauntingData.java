@@ -27,6 +27,7 @@ public class HauntingData
     public static final Codec<HauntingData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.LONG.optionalFieldOf("haunt_ticks", 0L).forGetter(data -> data.hauntTicks),
             Codec.LONG.optionalFieldOf("next_event", 0L).forGetter(data -> data.nextEventTime),
+            Codec.LONG.optionalFieldOf("next_whisper", 0L).forGetter(data -> data.nextWhisperTime),
             Codec.LONG.optionalFieldOf("last_kill_apparition", Long.MIN_VALUE).forGetter(data -> data.lastKillApparition),
             Codec.LONG.optionalFieldOf("last_bed_scare", Long.MIN_VALUE).forGetter(data -> data.lastBedScare),
             Codec.LONG.optionalFieldOf("last_grave", Long.MIN_VALUE).forGetter(data -> data.lastGrave),
@@ -41,6 +42,7 @@ public class HauntingData
 
     public long hauntTicks;
     public long nextEventTime;
+    public long nextWhisperTime;
     public long lastKillApparition;
     public long lastBedScare;
     public long lastGrave;
@@ -52,12 +54,13 @@ public class HauntingData
     public int defeats;
     public final List<ItemStack> stolen;
 
-    public HauntingData() {this(0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, List.of());}
+    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, List.of());}
 
-    private HauntingData(long hauntTicks, long nextEventTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, List<ItemStack> stolen)
+    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, List<ItemStack> stolen)
     {
         this.hauntTicks = hauntTicks;
         this.nextEventTime = nextEventTime;
+        this.nextWhisperTime = nextWhisperTime;
         this.lastKillApparition = lastKillApparition;
         this.lastBedScare = lastBedScare;
         this.lastGrave = lastGrave;
@@ -89,6 +92,7 @@ public class HauntingData
         DFTMConfig config = DFTMConfig.get();
         this.peaceUntil = 0L;
         this.nextEventTime = now + 100L;
+        this.nextWhisperTime = 0L;
         double days = switch (stage)
         {
             case WATCHED -> config.graceDays;
@@ -145,5 +149,6 @@ public class HauntingData
         this.peaceUntil = now + (long) (config.peaceDaysAfterDefeat * DAY);
         this.hauntTicks = (long) Math.ceil(config.graceDays * DAY);
         this.nextEventTime = 0L;
+        this.nextWhisperTime = 0L;
     }
 }
