@@ -46,6 +46,7 @@ public class DFTMConfig
     public boolean possessedCows = true;
     public boolean possessedPigs = true;
     public boolean possessedChickens = true;
+    public boolean imitators = true;
     public boolean thief = true;
     public double thiefChance = 0.03D;
     public boolean graves = true;

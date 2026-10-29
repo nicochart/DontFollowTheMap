@@ -6,6 +6,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.factionbedrock.dontfollowthemap.block.SealBlock;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
+import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
@@ -33,11 +34,13 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.network.protocol.game.ServerboundPlayerLoadedPacket;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -59,6 +62,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -428,6 +432,93 @@ public class DFTMGameTests
                     removePlayer(player);
                 })
                 .thenSucceed();
+    }
+
+    //imitator
+    @GameTest(maxTicks = 20, skyAccess = true, padding = 10)
+    public void imitatorAppearsNextToAWorkstationOfALivedInPlace(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -8, 15, Blocks.STONE);
+        //the crafting table is behind the player
+        ServerPlayer player = player(helper, 4, 1, -4, 180.0F);
+        BlockPos table = helper.absolutePos(new BlockPos(4, 1, 6));
+        level.setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        level.getChunkAt(table).setInhabitedTime(100000L);
+        helper.assertTrue(HauntEvents.imitator(player), "An imitator must appear in a lived-in place");
+        List<ImitatorEntity> imitators = level.getEntitiesOfClass(ImitatorEntity.class, new AABB(table).inflate(2.0D), imitator -> imitator.isImitatingFor(player));
+        helper.assertTrue(imitators.size() == 1, "It must appear next to the crafting table");
+        helper.assertFalse(HauntEvents.imitator(player), "Only one imitator at a time");
+        imitators.forEach(ImitatorEntity::discard);
+        removePlayer(player);
+        helper.succeed();
+    }
+
+    @GameTest(maxTicks = 300, skyAccess = true, padding = 10)
+    public void imitatorUsesAWorkstationThenShowsItsFaceWhenHit(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -8, 15, Blocks.STONE);
+        ServerPlayer player = player(helper, 4, 1, 0, 180.0F);
+        BlockPos barrel = helper.absolutePos(new BlockPos(4, 1, 6));
+        level.setBlock(barrel, Blocks.BARREL.defaultBlockState(), Block.UPDATE_ALL);
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 5)), player, List.of(barrel));
+        imitator.setPunches(false);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(barrel).getValue(BarrelBlock.OPEN), "The imitator must open the barrel"))
+                .thenExecute(() ->
+                {
+                    //a blow that would kill anyone
+                    helper.assertTrue(imitator.hurtServer(level, level.damageSources().playerAttack(player), 100.0F), "The first blow must hurt it");
+                    helper.assertTrue(imitator.isAlive() && imitator.getHealth() == 1.0F, "The first blow must hurt it, without killing it");
+                    helper.assertTrue(imitator.getDeltaMovement().horizontalDistanceSqr() > 0.0D, "The first blow must knock it back");
+                    helper.assertTrue(imitator.isUnmasked(), "Hit, it must stop pretending");
+                    helper.assertFalse(level.getBlockState(barrel).getValue(BarrelBlock.OPEN), "It must close the barrel it was using");
+                    helper.assertFalse(imitator.hurtServer(level, level.damageSources().playerAttack(player), 5.0F) || imitator.getHealth() < 1.0F, "Once hit, nothing can hurt it any more");
+                })
+                .thenWaitUntil(() ->
+                {
+                    helper.assertTrue(imitator.isRemoved(), "It must be gone once it showed its face");
+                    helper.assertTrue(!level.getEntitiesOfClass(HerobrineApparitionEntity.class, imitator.getBoundingBox().inflate(1.0D), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.FLASH).isEmpty(), "Herobrine must show himself where it stood");
+                })
+                .thenExecute(() -> removePlayer(player))
+                .thenSucceed();
+    }
+
+    @GameTest(maxTicks = 100)
+    public void imitatorMayPunchThePlayerWhoComesTooClose(GameTestHelper helper)
+    {
+        floor(helper, 0, 7, Blocks.STONE);
+        ServerPlayer player = player(helper, 4, 1, 1, 0.0F);
+        player.setGameMode(GameType.SURVIVAL);
+        //what a real client says once the world is loaded: players can't be hurt before
+        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
+        ImitatorEntity imitator = ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 3)), player, List.of());
+        imitator.setPunches(true);
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(player.getHealth() < player.getMaxHealth(), "The imitator must punch the player");
+            imitator.discard();
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(maxTicks = 20)
+    public void imitatorPassesForAnotherConnectedPlayer(GameTestHelper helper)
+    {
+        ServerPlayer victim = player(helper, 1, 1, 1, 0.0F), near = player(helper, 2, 1, 1, 0.0F), far = player(helper, 3, 1, 1, 0.0F);
+        far.snapTo(far.getX() + 200.0D, far.getY(), far.getZ());
+        RandomSource random = helper.getLevel().getRandom();
+        helper.assertTrue(ImitatorEntity.pickImitated(victim, List.of(victim), random) == null, "Alone, the victim must get a stranger");
+        helper.assertTrue(ImitatorEntity.pickImitated(victim, List.of(victim, near), random) == near, "It must pass for another player");
+        helper.assertTrue(ImitatorEntity.pickImitated(victim, List.of(victim, near, far), random) == far, "It must prefer a player who can't be seen at the same time");
+        ImitatorEntity imitator = new ImitatorEntity(DFTMEntities.IMITATOR, helper.getLevel());
+        imitator.disguiseAs(far);
+        helper.assertTrue(far.getUUID().equals(imitator.getSkinOwner()) && imitator.getCustomName() != null && imitator.isCustomNameVisible(), "It must wear their skin and their name");
+        imitator.disguiseAs(null);
+        helper.assertTrue(imitator.getSkinOwner() != null && imitator.getCustomName() == null, "A stranger has a default skin and no name");
+        List.of(victim, near, far).forEach(DFTMGameTests::removePlayer);
+        helper.succeed();
     }
 
     //seal and boss

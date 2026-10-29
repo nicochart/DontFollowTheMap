@@ -3,6 +3,7 @@ package fr.factionbedrock.dontfollowthemap.haunting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
@@ -12,17 +13,55 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
 /** Finds where things can happen: free spots, hidden spots, the player's home. */
 public class HauntSpots
 {
     /** A chunk must have been lived in for this long (summed over all players) to count as a home. */
-    private static final long MIN_HOME_INHABITED_TIME = 12000L;
+    public static final long MIN_HOME_INHABITED_TIME = 12000L;
+
+    /**
+     * Every block matching the predicate in a box around the center, in loaded chunks. Cheap enough to run on the fly:
+     * most sections can tell from their palette that they hold no such block, and are skipped without looking at their 4096 blocks.
+     */
+    public static List<BlockPos> findBlocks(ServerLevel level, BlockPos center, int horizontalRadius, int verticalRadius, Predicate<BlockState> predicate)
+    {
+        List<BlockPos> found = new ArrayList<>();
+        int minSectionY = SectionPos.blockToSectionCoord(center.getY() - verticalRadius), maxSectionY = SectionPos.blockToSectionCoord(center.getY() + verticalRadius);
+        for (int chunkX = SectionPos.blockToSectionCoord(center.getX() - horizontalRadius); chunkX <= SectionPos.blockToSectionCoord(center.getX() + horizontalRadius); chunkX++)
+        {
+            for (int chunkZ = SectionPos.blockToSectionCoord(center.getZ() - horizontalRadius); chunkZ <= SectionPos.blockToSectionCoord(center.getZ() + horizontalRadius); chunkZ++)
+            {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+                if (chunk == null) {continue;}
+                for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++)
+                {
+                    int sectionIndex = chunk.getSectionIndexFromSectionY(sectionY);
+                    if (sectionIndex < 0 || sectionIndex >= chunk.getSectionsCount()) {continue;}
+                    LevelChunkSection section = chunk.getSection(sectionIndex);
+                    if (section.hasOnlyAir() || !section.maybeHas(predicate)) {continue;}
+                    for (int y = 0; y < 16; y++) {for (int z = 0; z < 16; z++) {for (int x = 0; x < 16; x++)
+                    {
+                        if (!predicate.test(section.getBlockState(x, y, z))) {continue;}
+                        BlockPos pos = new BlockPos(SectionPos.sectionToBlockCoord(chunkX) + x, SectionPos.sectionToBlockCoord(sectionY) + y, SectionPos.sectionToBlockCoord(chunkZ) + z);
+                        if (Math.abs(pos.getX() - center.getX()) <= horizontalRadius && Math.abs(pos.getZ() - center.getZ()) <= horizontalRadius && Math.abs(pos.getY() - center.getY()) <= verticalRadius) {found.add(pos);}
+                    }}}
+                }
+            }
+        }
+        return found;
+    }
 
     public static boolean isFree(ServerLevel level, BlockPos pos)
     {

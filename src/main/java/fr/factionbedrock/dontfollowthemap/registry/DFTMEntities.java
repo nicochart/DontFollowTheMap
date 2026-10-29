@@ -3,6 +3,7 @@ package fr.factionbedrock.dontfollowthemap.registry;
 import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
+import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedChickenEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedCowEntity;
@@ -19,9 +20,10 @@ import net.minecraft.world.phys.Vec3;
 
 public class DFTMEntities
 {
-    //not saved: apparitions and the thief only exist for a few seconds
+    //not saved: apparitions, the thief and the imitator only stay for a little while
     public static final EntityType<HerobrineApparitionEntity> APPARITION = register("apparition", EntityType.Builder.of(HerobrineApparitionEntity::new, MobCategory.MISC).sized(0.6F, 1.8F).eyeHeight(1.62F).fireImmune().noSave().noSummon().clientTrackingRange(10));
     public static final EntityType<UnseenEntity> UNSEEN = register("unseen", EntityType.Builder.of(UnseenEntity::new, MobCategory.MISC).sized(0.6F, 1.8F).eyeHeight(1.62F).fireImmune().noSave().noSummon().clientTrackingRange(8));
+    public static final EntityType<ImitatorEntity> IMITATOR = register("imitator", EntityType.Builder.of(ImitatorEntity::new, MobCategory.MISC).sized(0.6F, 1.8F).eyeHeight(1.62F).fireImmune().noSave().noSummon().clientTrackingRange(10));
     public static final EntityType<HerobrineEntity> HEROBRINE = register("herobrine", EntityType.Builder.of(HerobrineEntity::new, MobCategory.MONSTER).sized(0.6F, 1.8F).eyeHeight(1.62F).fireImmune().clientTrackingRange(10));
     //possessed animals: exactly the size of the plain ones
     public static final EntityType<PossessedSheepEntity> POSSESSED_SHEEP = register("possessed_sheep", EntityType.Builder.of(PossessedSheepEntity::new, MobCategory.CREATURE).sized(0.9F, 1.3F).eyeHeight(1.235F).passengerAttachments(1.2375F).clientTrackingRange(10));
@@ -39,6 +41,7 @@ public class DFTMEntities
     {
         FabricDefaultAttributeRegistry.register(APPARITION, HerobrineApparitionEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(UNSEEN, UnseenEntity.createAttributes());
+        FabricDefaultAttributeRegistry.register(IMITATOR, ImitatorEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(HEROBRINE, HerobrineEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(POSSESSED_SHEEP, PossessedSheepEntity.createAttributes());
         FabricDefaultAttributeRegistry.register(POSSESSED_COW, PossessedCowEntity.createAttributes());

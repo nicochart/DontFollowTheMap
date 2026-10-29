@@ -1,6 +1,7 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
+import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
@@ -9,6 +10,8 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -16,6 +19,7 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -104,6 +108,33 @@ public class DFTMClientGameTest implements FabricClientGameTest
             //the fog lifts once he is gone
             context.waitTicks(20 * 5);
 
+            //an imitator at the crafting table: a default skin, the player being alone; then wearing the player's own skin and name
+            server.runCommand("setblock 1 -60 5 minecraft:crafting_table");
+            server.runCommand("setblock -1 -60 5 minecraft:chest[facing=north]");
+            server.runCommand("tp @a 0.5 -60 0.5 0 15");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                ImitatorEntity.spawn(minecraftServer.overworld(), new BlockPos(0, -60, 5), player, List.of(new BlockPos(1, -60, 5), new BlockPos(-1, -60, 5))).setPunches(false);
+            });
+            context.waitTicks(30);
+            context.takeScreenshot("dftm_imitator");
+            server.runOnServer(minecraftServer -> imitator(minecraftServer).disguiseAs(minecraftServer.getPlayerList().getPlayers().getFirst()));
+            context.waitTicks(10);
+            context.takeScreenshot("dftm_imitator_disguised");
+            //hit: it stares, then shows its real face for an instant
+            server.runOnServer(minecraftServer ->
+            {
+                ServerLevel level = minecraftServer.overworld();
+                imitator(minecraftServer).hurtServer(level, level.damageSources().playerAttack(minecraftServer.getPlayerList().getPlayers().getFirst()), 1.0F);
+            });
+            context.waitTicks(ImitatorEntity.STARE_TICKS + 3);
+            context.takeScreenshot("dftm_imitator_unmasked");
+            context.waitTicks(20);
+            server.runCommand("setblock 1 -60 5 minecraft:air");
+            server.runCommand("setblock -1 -60 5 minecraft:air");
+            discardEverythingButPlayers(server);
+
             //the shrine, seen from above
             server.runCommand("place structure dontfollowthemap:seal 0 -60 40");
             server.runCommand("gamemode spectator @a");
@@ -137,6 +168,11 @@ public class DFTMClientGameTest implements FabricClientGameTest
     private static void summon(TestServerContext server, String animal, double x, String tag, String data)
     {
         server.runCommand(String.format(Locale.ROOT, "summon minecraft:%s %.1f -60 8.5 {NoAI:1b,Rotation:[180f,0f],Tags:[\"%s\"],%s}", animal, x, tag, data));
+    }
+
+    private static ImitatorEntity imitator(MinecraftServer server)
+    {
+        return server.overworld().getEntitiesOfClass(ImitatorEntity.class, new AABB(-16.0D, -64.0D, -16.0D, 16.0D, -50.0D, 16.0D)).getFirst();
     }
 
     /** Removed, not killed: killing Herobrine would count as defeating him. */

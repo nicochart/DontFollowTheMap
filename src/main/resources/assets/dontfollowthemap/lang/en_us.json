@@ -8,6 +8,7 @@
   "entity.dontfollowthemap.possessed_pig": "Pig",
   "entity.dontfollowthemap.possessed_chicken": "Chicken",
   "entity.dontfollowthemap.unseen": "Something",
+  "entity.dontfollowthemap.imitator": "Player",
 
   "block.dontfollowthemap.seal": "Seal",
   "block.dontfollowthemap.seal.sealed": "The seal is cold. It is waiting for something.",
@@ -83,6 +84,8 @@
   "advancements.dontfollowthemap.possessed_pig.description": "Get bitten by a pig that kept staring at you",
   "advancements.dontfollowthemap.possessed_chicken.title": "Fowl Play",
   "advancements.dontfollowthemap.possessed_chicken.description": "Get pecked by a chicken that kept staring at you",
+  "advancements.dontfollowthemap.unmasked.title": "Identity Theft",
+  "advancements.dontfollowthemap.unmasked.description": "Hit someone who was only pretending to be a player",
   "advancements.dontfollowthemap.rest_in_peace.title": "Rest in Peace",
   "advancements.dontfollowthemap.rest_in_peace.description": "Wake up somewhere you didn't fall asleep",
   "advancements.dontfollowthemap.free_him.title": "You Followed It",

@@ -1,11 +1,11 @@
 package fr.factionbedrock.dontfollowthemap.haunting;
 
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
+import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.server.level.ServerLevel;
@@ -16,6 +16,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.util.Util;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BedBlock;
@@ -27,8 +28,6 @@ import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.RotationSegment;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import fr.factionbedrock.dontfollowthemap.util.SignWriter;
@@ -102,7 +101,7 @@ public class HauntEvents
     public static boolean swapTorches(ServerPlayer player, int maxTorches)
     {
         ServerLevel level = player.level();
-        List<BlockPos> torches = findTorches(level, player.blockPosition(), 18, 8);
+        List<BlockPos> torches = HauntSpots.findBlocks(level, player.blockPosition(), 18, 8, state -> state.is(Blocks.TORCH) || state.is(Blocks.WALL_TORCH));
         TorchSwaps swaps = TorchSwaps.get(level);
         long now = level.getGameTime();
         RandomSource random = player.getRandom();
@@ -120,36 +119,6 @@ public class HauntEvents
             swapped++;
         }
         return swapped > 0;
-    }
-
-    private static List<BlockPos> findTorches(ServerLevel level, BlockPos center, int horizontalRadius, int verticalRadius)
-    {
-        List<BlockPos> torches = new ArrayList<>();
-        int minSectionY = SectionPos.blockToSectionCoord(center.getY() - verticalRadius), maxSectionY = SectionPos.blockToSectionCoord(center.getY() + verticalRadius);
-        for (int chunkX = SectionPos.blockToSectionCoord(center.getX() - horizontalRadius); chunkX <= SectionPos.blockToSectionCoord(center.getX() + horizontalRadius); chunkX++)
-        {
-            for (int chunkZ = SectionPos.blockToSectionCoord(center.getZ() - horizontalRadius); chunkZ <= SectionPos.blockToSectionCoord(center.getZ() + horizontalRadius); chunkZ++)
-            {
-                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
-                if (chunk == null) {continue;}
-                for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++)
-                {
-                    int sectionIndex = chunk.getSectionIndexFromSectionY(sectionY);
-                    if (sectionIndex < 0 || sectionIndex >= chunk.getSectionsCount()) {continue;}
-                    LevelChunkSection section = chunk.getSection(sectionIndex);
-                    //most sections have no torch at all: skip them without looking at their 4096 blocks
-                    if (section.hasOnlyAir() || !section.maybeHas(state -> state.is(Blocks.TORCH) || state.is(Blocks.WALL_TORCH))) {continue;}
-                    for (int y = 0; y < 16; y++) {for (int z = 0; z < 16; z++) {for (int x = 0; x < 16; x++)
-                    {
-                        BlockState state = section.getBlockState(x, y, z);
-                        if (!state.is(Blocks.TORCH) && !state.is(Blocks.WALL_TORCH)) {continue;}
-                        BlockPos pos = new BlockPos(SectionPos.sectionToBlockCoord(chunkX) + x, SectionPos.sectionToBlockCoord(sectionY) + y, SectionPos.sectionToBlockCoord(chunkZ) + z);
-                        if (Math.abs(pos.getX() - center.getX()) <= horizontalRadius && Math.abs(pos.getZ() - center.getZ()) <= horizontalRadius && Math.abs(pos.getY() - center.getY()) <= verticalRadius) {torches.add(pos);}
-                    }}}
-                }
-            }
-        }
-        return torches;
     }
 
     //signs
@@ -265,6 +234,42 @@ public class HauntEvents
         List<Animal> animals = player.level().getEntitiesOfClass(Animal.class, player.getBoundingBox().inflate(32.0D, 12.0D, 32.0D), animal -> PossessableAnimals.canBePossessed(animal, kinds));
         if (animals.isEmpty()) {return null;}
         return PossessableAnimals.possess(animals.get(player.getRandom().nextInt(animals.size())), player);
+    }
+
+    //imitator
+    /** Herobrine passes for a player in a lived-in place around the player: next to workstations, in chunks where people spent time. */
+    public static boolean imitator(ServerPlayer player)
+    {
+        ServerLevel level = player.level();
+        if (!level.getEntitiesOfClass(ImitatorEntity.class, player.getBoundingBox().inflate(128.0D), imitator -> imitator.isImitatingFor(player)).isEmpty()) {return false;}
+        List<BlockPos> workstations = HauntSpots.findBlocks(level, player.blockPosition(), 32, 8, state -> state.is(ImitatorEntity.IMITATED_BLOCKS));
+        workstations.removeIf(pos -> level.getChunkAt(pos).getInhabitedTime() < HauntSpots.MIN_HOME_INHABITED_TIME);
+        Util.shuffle(workstations, player.getRandom());
+        for (BlockPos workstation : workstations)
+        {
+            BlockPos spot = findImitatorSpot(level, player, workstation);
+            if (spot == null) {continue;}
+            //it will use everything around there
+            ImitatorEntity.spawn(level, spot, player, workstations.stream().filter(pos -> pos.closerThan(workstation, 12.0D)).toList());
+            return true;
+        }
+        return false;
+    }
+
+    /** Next to the workstation, out of the player's sight and not right next to them. */
+    @Nullable private static BlockPos findImitatorSpot(ServerLevel level, ServerPlayer player, BlockPos workstation)
+    {
+        for (Direction side : Direction.Plane.HORIZONTAL)
+        {
+            //beside it, or below it if it stands on something
+            for (int dy = 0; dy >= -1; dy--)
+            {
+                BlockPos feet = workstation.relative(side).above(dy);
+                Vec3 eyes = Vec3.atBottomCenterOf(feet).add(0.0D, 1.62D, 0.0D);
+                if (HauntSpots.isStandable(level, feet) && player.distanceToSqr(eyes) > 8.0D * 8.0D && HauntSpots.isHiddenFrom(player, eyes)) {return feet;}
+            }
+        }
+        return null;
     }
 
     //apparitions caused by the player

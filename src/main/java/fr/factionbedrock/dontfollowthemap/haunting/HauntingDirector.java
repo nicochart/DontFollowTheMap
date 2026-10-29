@@ -3,6 +3,7 @@ package fr.factionbedrock.dontfollowthemap.haunting;
 import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
+import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
@@ -51,7 +52,7 @@ public class HauntingDirector
     private static final long GRAVE_COOLDOWN = HauntingData.DAY * 4L;
     private static final long MAP_REPLACEMENT_DELAY = HauntingData.DAY * 2L;
 
-    public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, POSSESSION}
+    public enum Event {SIGHTING, STALK, WHISPER, TORCHES, SIGN, BUILD, POSSESSION, IMITATOR}
 
     /** Players whose next mined drops will be stolen no matter what (set by the command, kept until it happens). */
     private static final Set<UUID> FORCED_THEFTS = new HashSet<>();
@@ -167,13 +168,14 @@ public class HauntingDirector
             case SIGN -> config.signs;
             case BUILD -> config.builds;
             case POSSESSION -> !PossessableAnimals.enabled().isEmpty();
+            case IMITATOR -> config.imitators;
         };
         if (!enabled) {return 0;}
         return switch (stage)
         {
             case HauntingData.WATCHED -> switch (event) {case SIGHTING -> 6; case WHISPER, TORCHES -> 3; default -> 0;};
-            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case WHISPER -> 2; case TORCHES, SIGN -> 3; case BUILD, POSSESSION -> 2; default -> 0;};
-            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, POSSESSION -> 3; case SIGN -> 2; case WHISPER -> 1;};
+            case HauntingData.HAUNTED -> switch (event) {case SIGHTING -> 5; case WHISPER -> 2; case TORCHES, SIGN -> 3; case BUILD, POSSESSION, IMITATOR -> 2; default -> 0;};
+            default -> switch (event) {case SIGHTING, STALK, TORCHES, BUILD, POSSESSION, IMITATOR -> 3; case SIGN -> 2; case WHISPER -> 1;};
         };
     }
 
@@ -189,12 +191,13 @@ public class HauntingDirector
             case SIGN -> HauntEvents.placeSign(player);
             case BUILD -> HauntEvents.build(player);
             case POSSESSION -> HauntEvents.possessAnimal(player, PossessableAnimals.enabled()) != null;
+            case IMITATOR -> HauntEvents.imitator(player);
         };
     }
 
     private static void onDeath(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source)
     {
-        if (!(source.getEntity() instanceof ServerPlayer player) || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity) {return;}
+        if (!(source.getEntity() instanceof ServerPlayer player) || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity || entity instanceof ImitatorEntity) {return;}
         DFTMConfig config = DFTMConfig.get();
         if (!config.killApparitions || !canBeHaunted(player) || player.level() != entity.level()) {return;}
         HauntingData data = HauntingData.get(player);
