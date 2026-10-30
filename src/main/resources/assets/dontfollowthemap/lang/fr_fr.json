@@ -118,5 +118,6 @@
   "commands.dontfollowthemap.trigger.no_tunnel":"Pas de place autour de %s : il faut se tenir au sol dans un tunnel 2x1 tout droit, face au bout, avec au moins 4 blocs de tunnel derrière soi, sans regarder en arrière",
   "commands.dontfollowthemap.not_possessable": "Impossible de posséder cette entité (%1$s). Animaux possédables : %2$s",
   "commands.dontfollowthemap.unknown_event": "Événement inconnu : %s",
+  "death.attack.dontfollowthemap.possessed_bite": "%1$s a été mis en pièces par %2$s",
   "commands.dontfollowthemap.unknown_whisper": "Son de murmure inconnu : %s"
 }

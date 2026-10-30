@@ -1,7 +1,10 @@
 package fr.factionbedrock.dontfollowthemap.entity.possessed;
 
+import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -9,6 +12,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
@@ -37,6 +41,12 @@ public class Possession
     private static final int CLOSE_STARE_TICKS_BEFORE_ATTACK = 20 * 15;
     private static final int ATTACK_TIMEOUT = 20 * 8;
     private static final int MIN_FLEE_TICKS = 20 * 6;
+    /**
+     * Its bite (data/dontfollowthemap/damage_type, which armor doesn't stop by itself): 7 hearts with no armor, 3 in full iron, under 2 in diamond.
+     * Armor counts more than against an ordinary blow, where it would let 5 hearts through in full iron. 1.5 times more on hard, like any mob's blow.
+     */
+    private static final ResourceKey<DamageType> BITE = ResourceKey.create(Registries.DAMAGE_TYPE, DontFollowTheMap.id("possessed_bite"));
+    private static final float BITE_DAMAGE = 14.0F, BITE_DAMAGE_PER_ARMOR_POINT = 8.0F / 15.0F;
 
     private final Animal animal;
     private final PossessableAnimals.Kind<?> kind;
@@ -51,11 +61,14 @@ public class Possession
         this.kind = kind;
     }
 
-    /** The plain animal's attributes, plus what it needs to strike. */
-    public static AttributeSupplier.Builder attributes(AttributeSupplier.Builder plainAttributes, double attackDamage)
+    /** The plain animal's attributes, plus what it needs to follow its victim. */
+    public static AttributeSupplier.Builder attributes(AttributeSupplier.Builder plainAttributes)
     {
-        return plainAttributes.add(Attributes.ATTACK_DAMAGE, attackDamage).add(Attributes.FOLLOW_RANGE, 40.0D);
+        return plainAttributes.add(Attributes.FOLLOW_RANGE, 40.0D);
     }
+
+    /** What its bite takes from a player with that much armor, before enchantments and effects (on normal). */
+    public static float biteDamage(int armor) {return BITE_DAMAGE - BITE_DAMAGE_PER_ARMOR_POINT * Math.min(armor, 20);}
 
     /** Called once the animal created its own goals (some animals need theirs to exist): the possession drives everything instead. */
     public static void replaceGoals(Animal animal, GoalSelector goals)
@@ -101,7 +114,7 @@ public class Possession
                 if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
                 if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
                 {
-                    this.animal.doHurtTarget(level, victim);
+                    this.bite(level, victim);
                     level.playSound(null, this.animal.getX(), this.animal.getY(), this.animal.getZ(), this.kind.attackSound(), SoundSource.HOSTILE, 1.0F, 1.0F);
                     this.setPhase(Phase.FLEE);
                 }
@@ -118,6 +131,20 @@ public class Possession
                 if ((this.phaseTicks > MIN_FLEE_TICKS && outOfSight) || this.phaseTicks > MIN_FLEE_TICKS * 4) {this.release();}
             }
         }
+    }
+
+    private void bite(ServerLevel level, Player victim)
+    {
+        DamageSource bite = new DamageSource(level.registryAccess().lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(BITE), this.animal);
+        float damage = biteDamage(victim.getArmorValue());
+        if (victim.hurtServer(level, bite, damage))
+        {
+            //the cow's charge throws them back
+            double knockback = this.animal.getAttributeValue(Attributes.ATTACK_KNOCKBACK);
+            float yaw = this.animal.getYRot() * Mth.DEG_TO_RAD;
+            if (knockback > 0.0D) {victim.knockback(knockback * 0.5D, Mth.sin(yaw), -Mth.cos(yaw), bite, damage);}
+        }
+        this.animal.setLastHurtMob(victim);
     }
 
     /** Head and body turned towards the victim. */

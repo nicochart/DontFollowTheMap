@@ -4,6 +4,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.factionbedrock.dontfollowthemap.client.ClientHaunting;
 import fr.factionbedrock.dontfollowthemap.client.FakeHitboxes;
 import fr.factionbedrock.dontfollowthemap.client.HauntedScreen;
+import fr.factionbedrock.dontfollowthemap.client.HerobrineFog;
 import fr.factionbedrock.dontfollowthemap.client.HerobrineSounds;
 import fr.factionbedrock.dontfollowthemap.client.ScrambledCoordinates;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
@@ -11,6 +12,7 @@ import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
+import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
@@ -32,6 +34,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -151,7 +154,21 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(15);
             context.runOnClient(client -> check(!ScrambledCoordinates.isActive() && positionLines(client).getFirst().equals(realPosition(client)), "With nothing of his around, the debug screen must tell the truth"));
 
-            //a stalk: he waits right behind the player while the fog slowly thickens, up to the boss fight one
+            //a sighting: while he watches from afar, the player's fog slowly thickens, as during a stalk; it lifts once he is gone
+            server.runOnServer(minecraftServer ->
+            {
+                if (!HauntEvents.sighting(minecraftServer.getPlayerList().getPlayers().getFirst(), HauntingData.HUNTED, false)) {throw new AssertionError("The sighting must find room around the player");}
+            });
+            context.waitTicks(20 * 3);
+            context.runOnClient(client -> check(HerobrineFog.amount() > 0.1F, "While he watches from afar, the fog must thicken (" + HerobrineFog.amount() + ")"));
+            context.takeScreenshot("dftm_sighting_fog");
+            discardEverythingButPlayers(server);
+            context.waitTicks(20 * 5);
+            context.runOnClient(client -> check(HerobrineFog.amount() == 0.0F, "Once he is gone, the fog must lift (" + HerobrineFog.amount() + ")"));
+
+            //a stalk: right behind the player while the fog slowly thickens (up to the boss fight one), he creeps up on them and strikes, with the darkness
+            //(they can't die of it here)
+            server.runCommand("effect give @a minecraft:resistance 60 4 true");
             server.runOnServer(minecraftServer ->
             {
                 if (!HauntEvents.stalk(minecraftServer.getPlayerList().getPlayers().getFirst())) {throw new AssertionError("The stalk must find room behind the player");}
@@ -159,15 +176,19 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(20);
             context.takeScreenshot("dftm_stalk_start");
             context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard"));
-            context.waitTicks(20 * 10);
+            context.waitTicks(20 * 4);
+            context.runOnClient(client -> check(client.player.hasEffect(MobEffects.DARKNESS), "Creeping up on the player while their back is turned, he must strike them, with the darkness"));
+            context.takeScreenshot("dftm_stalk_struck");
+            context.waitTicks(20 * 6);
             context.takeScreenshot("dftm_stalk_thickening");
             context.waitTicks(20 * 10);
             context.takeScreenshot("dftm_stalk_full");
-            //turning around: there he is
+            //turning around: he is somewhere there
             server.runCommand("tp @a 0.5 -60 0.5 180 0");
             context.waitTicks(5);
             context.takeScreenshot("dftm_stalk_turned_around");
             discardEverythingButPlayers(server);
+            server.runCommand("effect clear @a");
             //the fog lifts once he is gone
             context.waitTicks(20 * 5);
 
@@ -185,20 +206,22 @@ public class DFTMClientGameTest implements FabricClientGameTest
             discardEverythingButPlayers(server);
 
             //an imitator at the crafting table: a default skin, the player being alone; then wearing the player's own skin and name
+            //(the player in creative: it pays no attention to them)
+            server.runCommand("gamemode creative @a");
             server.runCommand("setblock 1 -60 5 minecraft:crafting_table");
             server.runCommand("setblock -1 -60 5 minecraft:chest[facing=north]");
             server.runCommand("tp @a 0.5 -60 0.5 0 15");
             server.runOnServer(minecraftServer ->
             {
                 ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
-                ImitatorEntity.spawn(minecraftServer.overworld(), new BlockPos(0, -60, 5), player, List.of(new BlockPos(1, -60, 5), new BlockPos(-1, -60, 5))).setPunches(false);
+                ImitatorEntity.spawn(minecraftServer.overworld(), new BlockPos(0, -60, 5), player, List.of(new BlockPos(1, -60, 5), new BlockPos(-1, -60, 5)));
             });
             context.waitTicks(30);
             context.takeScreenshot("dftm_imitator");
             server.runOnServer(minecraftServer -> imitator(minecraftServer).disguiseAs(minecraftServer.getPlayerList().getPlayers().getFirst()));
             context.waitTicks(10);
             context.takeScreenshot("dftm_imitator_disguised");
-            //hit: it stares, then shows its real face for an instant
+            //hit before it had a sword: it stares, then Herobrine comes out of it to strike back
             server.runOnServer(minecraftServer ->
             {
                 ServerLevel level = minecraftServer.overworld();
@@ -207,6 +230,21 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(ImitatorEntity.STARE_TICKS + 3);
             context.takeScreenshot("dftm_imitator_unmasked");
             context.waitTicks(20);
+            discardEverythingButPlayers(server);
+            //in survival, close to it: it makes itself a sword at the crafting table, and comes for the player with it
+            server.runCommand("gamemode survival @a");
+            server.runCommand("effect give @a minecraft:resistance 30 4 true");
+            server.runCommand("tp @a 0.5 -60 2.5 0 15");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                ImitatorEntity.spawn(minecraftServer.overworld(), new BlockPos(0, -60, 5), player, List.of(new BlockPos(1, -60, 5), new BlockPos(-1, -60, 5)));
+            });
+            context.waitTicks(80);
+            server.runOnServer(minecraftServer -> check(imitator(minecraftServer).isArmed(), "With the player close, the imitator must have made itself a sword"));
+            context.takeScreenshot("dftm_imitator_armed");
+            discardEverythingButPlayers(server);
+            server.runCommand("effect clear @a");
             server.runCommand("setblock 1 -60 5 minecraft:air");
             server.runCommand("setblock -1 -60 5 minecraft:air");
             discardEverythingButPlayers(server);

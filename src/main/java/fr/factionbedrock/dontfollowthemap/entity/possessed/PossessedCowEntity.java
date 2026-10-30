@@ -23,7 +23,7 @@ public class PossessedCowEntity extends Cow implements PossessedAnimal
 
     public PossessedCowEntity(EntityType<? extends PossessedCowEntity> type, Level level) {super(type, level);}
 
-    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(AbstractCow.createAttributes(), 5.0D).add(Attributes.ATTACK_KNOCKBACK, 1.0D);}
+    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(AbstractCow.createAttributes()).add(Attributes.ATTACK_KNOCKBACK, 1.0D);}
 
     @Override public Possession getPossession() {return this.possession;}
 

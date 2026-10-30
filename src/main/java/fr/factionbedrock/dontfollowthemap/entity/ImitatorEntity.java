@@ -6,6 +6,7 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -39,27 +40,35 @@ import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Herobrine passing for a player in a lived-in place. Wearing the skin and the name of another connected player (a default skin
  * and no name when nobody else is there), it goes from one workstation to another at a player's pace: it opens the chests, stays at
  * the crafting table or the furnace, opens the closed doors on its way and turns around to close them behind itself (never the ones
- * it found open), and pays no attention to the player... unless it punches them when they come too close.
- * Hit it: it takes the blow, then freezes, stares, shows its real face for an instant, and is gone.
+ * it found open), and pays no attention to the player... until a player in survival comes close. Then it goes to a crafting table
+ * (it puts one down if there is none around), makes itself an iron or a diamond sword, and attacks them with it.
+ * Hit it before it has its sword: it takes the blow, freezes, stares, and Herobrine comes out of it to strike the one who hit it, once, hard.
+ * Once it has its sword, it takes three blows before it freezes, stares, shows its real face for an instant, and is gone.
  */
 public class ImitatorEntity extends PathfinderMob
 {
@@ -69,13 +78,21 @@ public class ImitatorEntity extends PathfinderMob
     private static final EntityDataAccessor<String> DATA_SKIN_OWNER = SynchedEntityData.defineId(ImitatorEntity.class, EntityDataSerializers.STRING);
 
     public static final int STARE_TICKS = 30;
-    public static final int REVEAL_TICKS = 10;
+    /** How long its real face shows, or how long the Herobrine that comes out of it has to strike. */
+    public static final int REVEAL_TICKS = 10, STRIKE_TICKS = 20 * 6;
     private static final int LIFETIME = 20 * 60 * 3;
     private static final int WALKING_TIMEOUT = 20 * 12;
-    private static final int PUNCH_COOLDOWN = 20 * 10;
     private static final double REACH = 2.5D;
-    private static final double PUNCH_RANGE = 2.5D;
-    private static final float PUNCH_CHANCE = 0.4F;
+    /** A player in survival this close and in its sight is the one it goes for; it gives up on them this far. */
+    private static final double NOTICE_DISTANCE = 5.0D, GIVE_UP_DISTANCE = 32.0D;
+    /** How long it may take to get to its crafting table (then it puts one down where it stands), and to make its sword there. */
+    private static final int ARMING_TIMEOUT = 20 * 6, CRAFTING_TICKS = 50;
+    /** Like a player with a sword: 1.6 blows per second, within 3 blocks. */
+    private static final int ATTACK_INTERVAL = 13;
+    private static final double ATTACK_REACH = 3.0D;
+    /** The blows it takes once armed before showing its real face. */
+    public static final int ARMED_BLOWS = 3;
+    private static final float DIAMOND_SWORD_CHANCE = 0.3F;
     private static final List<Item> HELD_ITEMS = List.of(Items.OAK_PLANKS, Items.OAK_LOG, Items.COBBLESTONE, Items.TORCH, Items.COAL, Items.IRON_INGOT, Items.BREAD, Items.STICK);
     /**
      * On the ground, a mob covers about 2.16 × speed² blocks per tick, where a player covers 2.16 × their speed: at √0.1, it walks like a player
@@ -99,10 +116,18 @@ public class ImitatorEntity extends PathfinderMob
     /** Ticks left for the current step: walking to a workstation, using it, or standing around. */
     private int stepTicks;
     @Nullable private Vec3 lookPoint;
-    @Nullable private Player watched;
-    private boolean punches;
-    private int punchCooldown;
+    /** The player it is after, once one came close: it makes itself a sword, then attacks them. */
+    @Nullable private UUID preyId;
+    /** Where it makes its sword (null: from its pocket, with no room for a table), and for how long it has been at it (-1: on its way). */
+    @Nullable private BlockPos craftingTable;
+    private int craftingTicks = -1;
+    private boolean armed;
+    private int attackCooldown;
+    /** The blows it took once armed. */
+    private int blowsTaken;
     @Nullable private UUID unmaskedBy;
+    /** Unmasked before it had its sword: Herobrine comes out of it to strike back. */
+    private boolean strikesBack;
     private int stareTicks;
     /** The doors it opened on its way and hasn't closed yet (lower halves). */
     private final List<BlockPos> openedDoors = new ArrayList<>();
@@ -120,7 +145,8 @@ public class ImitatorEntity extends PathfinderMob
 
     public static AttributeSupplier.Builder createAttributes()
     {
-        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 20.0D).add(Attributes.MOVEMENT_SPEED, WALKING_SPEED).add(Attributes.ATTACK_DAMAGE, 2.0D).add(Attributes.FOLLOW_RANGE, 32.0D);
+        //a player's bare hand: its sword adds its own damage (6 for iron, 7 for diamond)
+        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 20.0D).add(Attributes.MOVEMENT_SPEED, WALKING_SPEED).add(Attributes.ATTACK_DAMAGE, 1.0D).add(Attributes.FOLLOW_RANGE, 32.0D);
     }
 
     /** Starts pretending next to the given workstations, for this victim. */
@@ -136,7 +162,6 @@ public class ImitatorEntity extends PathfinderMob
         imitator.setOnGround(true);
         imitator.victimId = victim.getUUID();
         imitator.workstations.addAll(workstations);
-        imitator.punches = random.nextFloat() < PUNCH_CHANCE;
         imitator.disguiseAs(pickImitated(victim, level.getServer().getPlayerList().getPlayers(), random));
         if (random.nextFloat() < 0.7F) {imitator.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(HELD_ITEMS.get(random.nextInt(HELD_ITEMS.size()))));}
         imitator.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
@@ -187,8 +212,10 @@ public class ImitatorEntity extends PathfinderMob
 
     public boolean isImitatingFor(Player player) {return player.getUUID().equals(this.victimId);}
     public boolean isUnmasked() {return this.unmaskedBy != null;}
-    /** Whether it punches the player who comes too close (decided at random when it appears). */
-    public void setPunches(boolean punches) {this.punches = punches;}
+    /** Whether it made its sword. */
+    public boolean isArmed() {return this.armed;}
+    /** Whether it is after this player. */
+    public boolean isAfter(Player player) {return player.getUUID().equals(this.preyId);}
 
     @Override protected void registerGoals()
     {
@@ -209,21 +236,25 @@ public class ImitatorEntity extends PathfinderMob
             this.tickUnmasked(level);
             return;
         }
-        //its time is up: it leaves when nobody is looking
-        if (this.tickCount > LIFETIME && HauntSpots.isHiddenFrom(victim, this.getEyePosition()))
+        ServerPlayer prey = this.getPrey(level);
+        //its time is up: it leaves when nobody is looking (not in the middle of a fight)
+        if (prey == null && this.tickCount > LIFETIME && HauntSpots.isHiddenFrom(victim, this.getEyePosition()))
         {
             this.discard();
             return;
         }
-        if (this.punchCooldown > 0) {this.punchCooldown--;}
+        if (this.attackCooldown > 0) {this.attackCooldown--;}
         if (this.closingDoor != null)
         {
             this.tickClosingDoor(level);
             return;
         }
-        if (this.punches && this.punchCooldown == 0 && this.distanceToSqr(victim) < PUNCH_RANGE * PUNCH_RANGE && this.hasLineOfSight(victim))
+        if (prey == null && (prey = this.findPrey(level)) != null) {this.startHunting(level, prey);}
+        if (prey != null)
         {
-            this.punch(level, victim);
+            if (this.armed) {this.tickAttacking(level, prey);}
+            else {this.tickArming(level, prey);}
+            this.openDoorsAhead(level);
             return;
         }
         this.stepTicks--;
@@ -241,17 +272,12 @@ public class ImitatorEntity extends PathfinderMob
     {
         if (this.stepTicks <= 0)
         {
-            this.watched = null;
             this.goToNextWorkstation(level);
             return;
         }
-        //looking around, or at whoever it just punched
-        if (this.watched != null) {this.getLookControl().setLookAt(this.watched, 30.0F, 30.0F);}
-        else
-        {
-            if (this.lookPoint == null || this.stepTicks % 40 == 0) {this.lookPoint = this.getEyePosition().add(this.random.nextGaussian() * 4.0D, this.random.nextGaussian(), this.random.nextGaussian() * 4.0D);}
-            this.getLookControl().setLookAt(this.lookPoint);
-        }
+        //looking around
+        if (this.lookPoint == null || this.stepTicks % 40 == 0) {this.lookPoint = this.getEyePosition().add(this.random.nextGaussian() * 4.0D, this.random.nextGaussian(), this.random.nextGaussian() * 4.0D);}
+        this.getLookControl().setLookAt(this.lookPoint);
     }
 
     private void goToNextWorkstation(ServerLevel level)
@@ -460,24 +486,146 @@ public class ImitatorEntity extends PathfinderMob
         return !level.getEntitiesOfClass(LivingEntity.class, AABB.encapsulatingFullBlocks(door, door.above()), entity -> entity != this && entity.isAlive() && !entity.isSpectator()).isEmpty();
     }
 
-    private void punch(ServerLevel level, ServerPlayer victim)
+    //attack
+    private static boolean isHuntable(Player player) {return player.isAlive() && !player.isSpectator() && !player.isCreative();}
+
+    /** A player in survival or adventure who came close, in its sight. */
+    @Nullable private ServerPlayer findPrey(ServerLevel level)
     {
-        this.stopUsing(level);
+        for (ServerPlayer player : level.getPlayers(player -> isHuntable(player) && this.distanceToSqr(player) < NOTICE_DISTANCE * NOTICE_DISTANCE))
+        {
+            if (this.hasLineOfSight(player)) {return player;}
+        }
+        return null;
+    }
+
+    /** The player it is after, as long as they are worth it (alive, in survival, not too far). */
+    @Nullable private ServerPlayer getPrey(ServerLevel level)
+    {
+        if (this.preyId == null) {return null;}
+        if (level.getPlayerByUUID(this.preyId) instanceof ServerPlayer player && isHuntable(player) && this.distanceToSqr(player) < GIVE_UP_DISTANCE * GIVE_UP_DISTANCE) {return player;}
+        //gone: it goes back to its business (armed or not, for whoever comes next)
+        this.preyId = null;
+        this.craftingTable = null;
+        this.craftingTicks = -1;
         this.getNavigation().stop();
         this.stopSprinting();
-        this.getLookControl().setLookAt(victim, 180.0F, 180.0F);
-        this.swingForAttack(InteractionHand.MAIN_HAND);
-        this.doHurtTarget(level, victim);
-        this.punchCooldown = PUNCH_COOLDOWN;
-        //it looks at them for a moment, then goes back to what it was doing
-        this.watched = victim;
-        this.stepTicks = 40;
+        this.stepTicks = 20;
+        return null;
+    }
+
+    private void startHunting(ServerLevel level, ServerPlayer prey)
+    {
+        this.preyId = prey.getUUID();
+        this.stopUsing(level);
+        this.getNavigation().stop();
+        if (this.armed) {return;}
+        this.stepTicks = ARMING_TIMEOUT;
+        this.craftingTicks = -1;
+        this.craftingTable = this.findOrPlaceCraftingTable(level);
+        if (this.craftingTable != null) {this.walkTo(this.craftingTable);}
+    }
+
+    /** On its way to the crafting table, then making its sword there, paying no attention to the player. */
+    private void tickArming(ServerLevel level, ServerPlayer prey)
+    {
+        BlockPos table = this.craftingTable;
+        if (this.craftingTicks < 0)
+        {
+            //the table was taken away: another one
+            if (table != null && !level.getBlockState(table).is(Blocks.CRAFTING_TABLE)) {table = this.craftingTable = this.findOrPlaceCraftingTable(level);}
+            //it can't get there: it puts one down right here (or makes do without one)
+            if (--this.stepTicks <= 0 && table != null && !this.isInReach(table))
+            {
+                this.craftingTable = this.placeCraftingTable(level);
+                this.startCrafting(this.craftingTable);
+            }
+            else if (table == null || this.isInReach(table)) {this.startCrafting(table);}
+            else if (this.getNavigation().isDone() && this.stepTicks % 10 == 0) {this.walkTo(table);}
+            return;
+        }
+        if (table != null && !level.getBlockState(table).is(Blocks.CRAFTING_TABLE))
+        {
+            this.craftingTicks = -1;
+            return;
+        }
+        this.getLookControl().setLookAt(table != null ? Vec3.atCenterOf(table) : prey.getEyePosition());
+        //taking the materials out, then the sword
+        if (++this.craftingTicks == CRAFTING_TICKS / 2) {this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);}
+        if (this.craftingTicks >= CRAFTING_TICKS) {this.arm(level);}
+    }
+
+    private void startCrafting(@Nullable BlockPos table)
+    {
+        this.getNavigation().stop();
+        this.stopSprinting();
+        this.craftingTicks = 0;
+        if (table != null) {this.getLookControl().setLookAt(Vec3.atCenterOf(table));}
+        //the right click
+        this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+    }
+
+    private void arm(ServerLevel level)
+    {
+        this.armed = true;
+        this.craftingTable = null;
+        this.craftingTicks = -1;
+        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(this.random.nextFloat() < DIAMOND_SWORD_CHANCE ? Items.DIAMOND_SWORD : Items.IRON_SWORD));
+        level.playSound(null, this.getX(), this.getY(), this.getZ(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.2F, (this.random.nextFloat() - this.random.nextFloat()) * 1.4F + 2.0F);
+    }
+
+    /** A crafting table to make its sword at: one it knows or one around, close by, or else one it puts down where it stands. */
+    @Nullable private BlockPos findOrPlaceCraftingTable(ServerLevel level)
+    {
+        Stream<BlockPos> tables = Stream.concat(this.workstations.stream(), HauntSpots.findBlocks(level, this.blockPosition(), 8, 3, state -> state.is(Blocks.CRAFTING_TABLE)).stream());
+        BlockPos table = tables.filter(pos -> level.getBlockState(pos).is(Blocks.CRAFTING_TABLE) && pos.distToCenterSqr(this.position()) < 12.0D * 12.0D)
+                .min(Comparator.comparingDouble(pos -> pos.distToCenterSqr(this.position()))).orElse(null);
+        return table != null ? table : this.placeCraftingTable(level);
+    }
+
+    /** Puts a crafting table down next to itself, like a player would. Null if there is no room for one. */
+    @Nullable private BlockPos placeCraftingTable(ServerLevel level)
+    {
+        BlockState table = Blocks.CRAFTING_TABLE.defaultBlockState();
+        Direction front = this.getDirection();
+        for (Direction side : List.of(front, front.getClockWise(), front.getCounterClockWise(), front.getOpposite()))
+        {
+            BlockPos pos = this.blockPosition().relative(side);
+            if (!HauntSpots.isReplaceable(level, pos) || !level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), Direction.UP) || !level.isUnobstructed(table, pos, CollisionContext.empty())) {continue;}
+            this.getLookControl().setLookAt(Vec3.atCenterOf(pos));
+            this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+            level.setBlock(pos, table, Block.UPDATE_ALL);
+            SoundType sound = table.getSoundType();
+            level.playSound(null, pos, sound.getPlaceSound(), SoundSource.BLOCKS, (sound.getVolume() + 1.0F) / 2.0F, sound.getPitch() * 0.8F);
+            level.gameEvent(this, GameEvent.BLOCK_PLACE, pos);
+            return pos;
+        }
+        return null;
+    }
+
+    /** Sword in hand: it runs at them and strikes like a player would. */
+    private void tickAttacking(ServerLevel level, ServerPlayer prey)
+    {
+        this.getLookControl().setLookAt(prey, 30.0F, 30.0F);
+        boolean inReach = prey.getBoundingBox().distanceToSqr(this.getEyePosition()) < ATTACK_REACH * ATTACK_REACH;
+        if (this.tickCount % 5 == 0)
+        {
+            this.setSprinting(!inReach);
+            this.getNavigation().moveTo(prey, inReach ? 1.0D : SPRINTING_SPEED_MODIFIER);
+        }
+        if (inReach && this.attackCooldown == 0 && this.hasLineOfSight(prey))
+        {
+            this.swingForAttack(InteractionHand.MAIN_HAND);
+            this.doHurtTarget(level, prey);
+            this.attackCooldown = ATTACK_INTERVAL;
+        }
     }
 
     /** Caught: it stops pretending, and nothing can hurt it any more. */
-    private void unmask(ServerLevel level, Player player)
+    private void unmask(ServerLevel level, Player player, boolean strikesBack)
     {
         this.unmaskedBy = player.getUUID();
+        this.strikesBack = strikesBack;
         this.stopUsing(level);
         this.getNavigation().stop();
         this.stopSprinting();
@@ -495,10 +643,11 @@ public class ImitatorEntity extends PathfinderMob
             this.setYBodyRot(this.getYHeadRot());
         }
         if (++this.stareTicks < STARE_TICKS) {return;}
-        //its real face, for an instant
+        //its real face: for an instant, or coming for the one who hit it too soon
         if (player instanceof ServerPlayer serverPlayer)
         {
-            HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);
+            if (this.strikesBack) {HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.STRIKE, STRIKE_TICKS);}
+            else {HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);}
             DFTMAdvancements.award(serverPlayer, "unmasked");
         }
         HauntEvents.appearSuddenly(level, this.position());
@@ -508,10 +657,13 @@ public class ImitatorEntity extends PathfinderMob
     @Override public boolean hurtServer(ServerLevel level, DamageSource source, float damage)
     {
         if (source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {return super.hurtServer(level, source, damage);}
-        //only the first blow of a player gets through: taken like anyone would take it (damage, knockback), but never deadly
+        //only the blows of players get through: taken like anyone would take them (damage, knockback), but never deadly
         if (this.unmaskedBy != null || !(source.getEntity() instanceof Player player) || player.isSpectator()) {return false;}
-        boolean hurt = super.hurtServer(level, source, Math.min(damage, this.getHealth() - 1.0F));
-        this.unmask(level, player);
+        boolean hurt = super.hurtServer(level, source, Math.max(0.0F, Math.min(damage, this.getHealth() - 1.0F)));
+        if (!this.armed) {this.unmask(level, player, true);}
+        else if (hurt && ++this.blowsTaken >= ARMED_BLOWS) {this.unmask(level, player, false);}
+        //it turns on whoever hits it
+        else if (hurt && isHuntable(player)) {this.preyId = player.getUUID();}
         return hurt;
     }
 

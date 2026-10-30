@@ -118,5 +118,6 @@
   "commands.dontfollowthemap.trigger.no_tunnel":"No room for it around %s: they must stand on the floor of a straight 2x1 tunnel, facing where they dig, with at least 4 blocks of tunnel behind them, and not look back",
   "commands.dontfollowthemap.not_possessable": "%1$s can't be possessed (possessable animals: %2$s)",
   "commands.dontfollowthemap.unknown_event": "Unknown event: %s",
+  "death.attack.dontfollowthemap.possessed_bite": "%1$s was torn apart by %2$s",
   "commands.dontfollowthemap.unknown_whisper": "Unknown whisper sound: %s"
 }

@@ -21,7 +21,7 @@ public class PossessedChickenEntity extends Chicken implements PossessedAnimal
 
     public PossessedChickenEntity(EntityType<? extends PossessedChickenEntity> type, Level level) {super(type, level);}
 
-    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Chicken.createAttributes(), 3.0D);}
+    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Chicken.createAttributes());}
 
     @Override public Possession getPossession() {return this.possession;}
 

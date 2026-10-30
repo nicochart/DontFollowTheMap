@@ -21,7 +21,7 @@ public class PossessedSheepEntity extends Sheep implements PossessedAnimal
 
     public PossessedSheepEntity(EntityType<? extends PossessedSheepEntity> type, Level level) {super(type, level);}
 
-    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Sheep.createAttributes(), 4.0D);}
+    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Sheep.createAttributes());}
 
     @Override public Possession getPossession() {return this.possession;}
 

@@ -39,6 +39,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
@@ -64,6 +65,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.chicken.Chicken;
 import net.minecraft.world.entity.animal.chicken.ChickenVariants;
@@ -116,8 +118,11 @@ import java.util.function.Predicate;
 /** Server game tests: ./gradlew runGameTest */
 public class DFTMGameTests
 {
-    /** Tests with players in survival run on their own (data/dontfollowthemap/test_environment): the Herobrine of any other test would fight them. */
-    private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players";
+    /**
+     * Tests with players in survival run on their own (data/dontfollowthemap/test_environment): the Herobrine of any other test would fight them.
+     * The one where Herobrine fights several of them runs alone: he would draw the players of the other ones into his fight.
+     */
+    private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players", HEROBRINE_FIGHT = "dontfollowthemap:herobrine_fight";
 
     //progression and saving
     @GameTest
@@ -183,6 +188,40 @@ public class DFTMGameTests
             List.of(watched, other).forEach(DFTMGameTests::removePlayer);
             helper.succeed();
         });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 16)
+    public void stalkerCreepsUpStrikesAndTakesThreeBlows(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -8, 15, Blocks.STONE);
+        removeBarriers(helper);
+        //facing south, the stalker right behind them
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 0.0F);
+        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
+        HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(level, helper.absoluteVec(new Vec3(4.5D, 1.0D, -3.5D)), player, HerobrineApparitionEntity.Mode.STALK, HerobrineApparitionEntity.STALK_LIFETIME);
+        stalker.setFogging(player);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() < player.getMaxHealth() && player.hasEffect(MobEffects.DARKNESS), "Creeping up on the player while their back is turned, it must strike them, with the darkness"))
+                .thenExecute(() -> player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4)))
+                .thenWaitUntil(() -> helper.assertTrue(stalker.distanceTo(player) > 5.0D && HauntSpots.isHiddenFrom(player, stalker.getEyePosition()),"Once it struck, it must be gone behind them"))
+                .thenExecute(() -> blowAndCheck(helper, stalker, player, 1))
+                .thenIdle(12)
+                .thenExecute(() -> blowAndCheck(helper, stalker, player, 2))
+                .thenIdle(12)
+                .thenExecute(() ->
+                {
+                    stalker.hurtServer(level, level.damageSources().playerAttack(player), 5.0F);
+                    helper.assertTrue(stalker.isRemoved(), "Only the third blow must make it go away");
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    private static void blowAndCheck(GameTestHelper helper, HerobrineApparitionEntity stalker, ServerPlayer player, int hits)
+    {
+        stalker.hurtServer(helper.getLevel(), helper.getLevel().damageSources().playerAttack(player), 5.0F);
+        helper.assertTrue(stalker.isAlive() && stalker.getHits() == hits, "Blow " + hits + " must send it away for a moment, not for good");
     }
 
     @GameTest(maxTicks = 140, skyAccess = true, padding = 14)
@@ -417,6 +456,47 @@ public class DFTMGameTests
                 chicken -> hasVariant(chicken, DataComponents.CHICKEN_VARIANT, ChickenVariants.WARM));
     }
 
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 10)
+    public void possessedAnimalBitesHardButArmorHelps(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        helper.assertTrue(Possession.biteDamage(0) == 14.0F && Math.abs(Possession.biteDamage(15) - 6.0F) < 0.01F, "A bite must take 7 hearts with no armor, 3 in full iron");
+        floor(helper, -1, 8, Blocks.GRASS_BLOCK);
+        //one player with no armor, one in full iron (mock players never tick: their armor would never count, their armor value is given right away)
+        ServerPlayer bare = survivalPlayer(helper, 1, 1, 0, 0.0F), armored = survivalPlayer(helper, 6, 1, 0, 0.0F);
+        armored.getAttribute(Attributes.ARMOR).setBaseValue(15.0D);
+        List.of(bare, armored).forEach(player -> player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket()));
+        List<Animal> possessed = List.of(PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(1, 1, 5)), bare),
+                PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(6, 1, 5)), armored));
+        //close enough for them to charge
+        teleport(helper, bare, 1, 1, 3, 0.0F);
+        teleport(helper, armored, 6, 1, 3, 0.0F);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(bare.getHealth() < bare.getMaxHealth() && armored.getHealth() < armored.getMaxHealth(), "Both possessed sheep must bite"))
+                .thenExecute(() ->
+                {
+                    float bareDamage = bare.getMaxHealth() - bare.getHealth(), armoredDamage = armored.getMaxHealth() - armored.getHealth();
+                    helper.assertTrue(Math.abs(bareDamage - scaledByDifficulty(level, 14.0F)) < 0.01F, "With no armor, a bite must take 7 hearts (on normal), not " + bareDamage / 2.0F);
+                    helper.assertTrue(Math.abs(armoredDamage - scaledByDifficulty(level, Possession.biteDamage(15))) < 0.01F, "In full iron, a bite must take 3 hearts (on normal), not " + armoredDamage / 2.0F);
+                    possessed.forEach(Entity::discard);
+                    level.getEntitiesOfClass(Sheep.class, helper.getBounds().inflate(16.0D)).forEach(Entity::discard);
+                    List.of(bare, armored).forEach(DFTMGameTests::removePlayer);
+                })
+                .thenSucceed();
+    }
+
+    /** What a mob's blow takes from a player at the world's difficulty. */
+    private static float scaledByDifficulty(ServerLevel level, float damage)
+    {
+        return switch (level.getDifficulty())
+        {
+            case PEACEFUL -> 0.0F;
+            case EASY -> Math.min(damage / 2.0F + 1.0F, damage);
+            case NORMAL -> damage;
+            case HARD -> damage * 1.5F;
+        };
+    }
+
     @GameTest(maxTicks = 20)
     public void onlyFreeAdultsOfTheAllowedKindsCanBePossessed(GameTestHelper helper)
     {
@@ -647,8 +727,8 @@ public class DFTMGameTests
         ServerPlayer player = player(helper, 4, 1, 0, 180.0F);
         BlockPos barrel = helper.absolutePos(new BlockPos(4, 1, 6));
         level.setBlock(barrel, Blocks.BARREL.defaultBlockState(), Block.UPDATE_ALL);
+        //the player is in creative: it doesn't go for a sword
         ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 5)), player, List.of(barrel));
-        imitator.setPunches(false);
         helper.startSequence()
                 .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(barrel).getValue(BarrelBlock.OPEN), "The imitator must open the barrel"))
                 .thenExecute(() ->
@@ -664,28 +744,114 @@ public class DFTMGameTests
                 .thenWaitUntil(() ->
                 {
                     helper.assertTrue(imitator.isRemoved(), "It must be gone once it showed its face");
-                    helper.assertTrue(!level.getEntitiesOfClass(HerobrineApparitionEntity.class, imitator.getBoundingBox().inflate(1.0D), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.FLASH).isEmpty(), "Herobrine must show himself where it stood");
+                    helper.assertTrue(!apparitionsAround(level, imitator, HerobrineApparitionEntity.Mode.STRIKE).isEmpty(), "Hit before it had its sword, Herobrine must come out of it to strike back");
+                })
+                .thenExecute(() ->
+                {
+                    apparitionsAround(level, imitator, HerobrineApparitionEntity.Mode.STRIKE).forEach(HerobrineApparitionEntity::discard);
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 10)
+    public void imitatorMakesASwordWhenAPlayerComesCloseAndTakesThreeBlows(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -1, 8, Blocks.STONE);
+        BlockPos table = helper.absolutePos(new BlockPos(6, 1, 4));
+        level.setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        ServerPlayer player = survivalPlayer(helper, 1, 1, 0, 0.0F);
+        //what a real client says once the world is loaded: players can't be hurt before
+        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(2, 1, 6)), player, List.of(table));
+        helper.startSequence()
+                .thenIdle(10)
+                .thenExecute(() ->
+                {
+                    helper.assertFalse(imitator.isAfter(player), "A player farther than 5 blocks away must not be noticed");
+                    teleport(helper, player, 2, 1, 3, 0.0F);
+                })
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isArmed(), "With a player close, it must make itself a sword"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(imitator.getMainHandItem().is(Items.IRON_SWORD) || imitator.getMainHandItem().is(Items.DIAMOND_SWORD), "Its sword must be an iron or a diamond one");
+                    helper.assertTrue(imitator.getEyePosition().distanceTo(Vec3.atCenterOf(table)) < 3.0D, "It must make it at the crafting table");
+                })
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() < player.getMaxHealth(), "It must attack the player with its sword"))
+                .thenExecute(() ->
+                {
+                    player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+                    hitAndCheck(helper, imitator, player, false, "Armed, it must take a first blow without showing its face");
+                })
+                .thenIdle(12)
+                .thenExecute(() -> hitAndCheck(helper, imitator, player, false, "Armed, it must take a second blow without showing its face"))
+                .thenIdle(12)
+                .thenExecute(() -> hitAndCheck(helper, imitator, player, true, "The third blow must unmask it"))
+                .thenWaitUntil(() ->
+                {
+                    helper.assertTrue(imitator.isRemoved(), "It must be gone once it showed its face");
+                    helper.assertTrue(!apparitionsAround(level, imitator, HerobrineApparitionEntity.Mode.FLASH).isEmpty(), "Its real face must show for an instant where it stood");
                 })
                 .thenExecute(() -> removePlayer(player))
                 .thenSucceed();
     }
 
-    @GameTest(maxTicks = 100)
-    public void imitatorMayPunchThePlayerWhoComesTooClose(GameTestHelper helper)
+    private static void hitAndCheck(GameTestHelper helper, ImitatorEntity imitator, ServerPlayer player, boolean unmasked, String message)
     {
-        floor(helper, 0, 7, Blocks.STONE);
-        ServerPlayer player = player(helper, 4, 1, 1, 0.0F);
-        player.setGameMode(GameType.SURVIVAL);
-        //what a real client says once the world is loaded: players can't be hurt before
+        ServerLevel level = helper.getLevel();
+        helper.assertTrue(imitator.hurtServer(level, level.damageSources().playerAttack(player), 4.0F), "The blow must hurt it");
+        helper.assertTrue(imitator.isUnmasked() == unmasked && imitator.isAlive(), message);
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 200, skyAccess = true, padding = 10)
+    public void imitatorPutsDownACraftingTableWhenThereIsNone(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -1, 8, Blocks.STONE);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 1, 0.0F);
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 4)), player, List.of());
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isArmed(), "With a player close, it must make itself a sword"))
+                .thenExecute(() ->
+                {
+                    boolean placed = BlockPos.betweenClosedStream(imitator.blockPosition().offset(-2, -1, -2), imitator.blockPosition().offset(2, 1, 2)).anyMatch(pos -> level.getBlockState(pos).is(Blocks.CRAFTING_TABLE));
+                    helper.assertTrue(placed, "With no crafting table around, it must put one down to make its sword");
+                    imitator.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 200, skyAccess = true, padding = 10)
+    public void imitatorHitTooSoonStrikesBackOnce(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -1, 8, Blocks.STONE);
+        //too far for it to notice them: it is still pretending when they hit it (with an arrow, say)
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 0, 0.0F);
         player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
-        ImitatorEntity imitator = ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 3)), player, List.of());
-        imitator.setPunches(true);
-        helper.succeedWhen(() ->
-        {
-            helper.assertTrue(player.getHealth() < player.getMaxHealth(), "The imitator must punch the player");
-            imitator.discard();
-            removePlayer(player);
-        });
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 7)), player, List.of());
+        helper.startSequence()
+                .thenIdle(5)
+                .thenExecute(() ->
+                {
+                    helper.assertFalse(imitator.isAfter(player) || imitator.isArmed(), "Far from the player, it must still be pretending");
+                    helper.assertTrue(imitator.hurtServer(level, level.damageSources().playerAttack(player), 2.0F) && imitator.isUnmasked(), "Hit before it has its sword, it must be unmasked at once");
+                })
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() <= player.getMaxHealth() - 5.0F, "Herobrine must come out of it and strike the player, hard"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(imitator.isRemoved(), "The imitator must be gone");
+                    helper.assertTrue(level.getEntitiesOfClass(HerobrineApparitionEntity.class, helper.getBounds().inflate(4.0D)).isEmpty(), "He must vanish once he struck");
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    private static List<HerobrineApparitionEntity> apparitionsAround(ServerLevel level, Entity entity, HerobrineApparitionEntity.Mode mode)
+    {
+        return level.getEntitiesOfClass(HerobrineApparitionEntity.class, entity.getBoundingBox().inflate(1.0D), apparition -> apparition.getMode() == mode);
     }
 
     @GameTest(maxTicks = 60, skyAccess = true, padding = 20)
@@ -701,7 +867,6 @@ public class DFTMGameTests
         level.setBlock(far, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
         ImitatorEntity walker = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(1, 1, 1)), player, List.of(near));
         ImitatorEntity sprinter = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(8, 1, 1)), player, List.of(far));
-        List.of(walker, sprinter).forEach(imitator -> imitator.setPunches(false));
         Vec3[] from = new Vec3[2];
         helper.runAfterDelay(10, () ->
         {
@@ -777,9 +942,7 @@ public class DFTMGameTests
     {
         BlockPos table = helper.absolutePos(new BlockPos(4, 1, 13));
         helper.getLevel().setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
-        ImitatorEntity imitator = ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 2)), victim, List.of(table));
-        imitator.setPunches(false);
-        return imitator;
+        return ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 2)), victim, List.of(table));
     }
 
     private static boolean isDoorOpen(ServerLevel level, BlockPos door) {return level.getBlockState(door).getValue(DoorBlock.OPEN);}
@@ -1100,7 +1263,7 @@ public class DFTMGameTests
         });
     }
 
-    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 500, skyAccess = true, padding = 8)
+    @GameTest(environment = HEROBRINE_FIGHT, maxTicks = 500, skyAccess = true, padding = 8)
     public void herobrineFightsEveryoneInTheFight(GameTestHelper helper)
     {
         ServerLevel level = helper.getLevel();
@@ -1111,8 +1274,9 @@ public class DFTMGameTests
         herobrine.setSealPos(seal);
         //his last phase: the lights go out right away
         herobrine.setHealth(herobrine.getMaxHealth() * 0.2F);
-        //two players in the fight (they can't be hurt: their client never loaded), the first one closer to him; one more watching in creative
+        //two players in the fight (out of harm's way), the first one closer to him; one more watching in creative
         ServerPlayer first = survivalPlayer(helper, 3, 1, 1, 0.0F), second = survivalPlayer(helper, 9, 1, 9, 0.0F), creative = player(helper, 9, 1, 1, 0.0F);
+        List.of(first, second).forEach(player -> player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4)));
         creative.setGameMode(GameType.CREATIVE);
         herobrine.setTarget(first);
         helper.startSequence()
@@ -1172,9 +1336,15 @@ public class DFTMGameTests
     }
 
     //helpers
+    /** A floor at y = 0, from..to on x and z. Only the chunks of the 8x8 test area are kept ticking: those of the floor around are too, so that what stands there moves. */
     private static void floor(GameTestHelper helper, int from, int to, Block block)
     {
         for (int x = from; x <= to; x++) {for (int z = from; z <= to; z++) {helper.setBlock(x, 0, z, block);}}
+        BlockPos corner = helper.absolutePos(new BlockPos(from, 0, from)), otherCorner = helper.absolutePos(new BlockPos(to, 0, to));
+        for (int chunkX = SectionPos.blockToSectionCoord(Math.min(corner.getX(), otherCorner.getX())); chunkX <= SectionPos.blockToSectionCoord(Math.max(corner.getX(), otherCorner.getX())); chunkX++)
+        {
+            for (int chunkZ = SectionPos.blockToSectionCoord(Math.min(corner.getZ(), otherCorner.getZ())); chunkZ <= SectionPos.blockToSectionCoord(Math.max(corner.getZ(), otherCorner.getZ())); chunkZ++) {helper.getLevel().setChunkForced(chunkX, chunkZ, true);}
+        }
     }
 
     private static ServerPlayer player(GameTestHelper helper, int x, int y, int z, float yaw)
@@ -1184,7 +1354,10 @@ public class DFTMGameTests
         return player;
     }
 
-    /** Like makeMockServerPlayerInLevel, but in survival: those always count as players in creative. Only in tests of the SURVIVAL_PLAYERS environment. */
+    /**
+     * Like makeMockServerPlayerInLevel, but in survival: those always count as players in creative. Only in tests of their own environment (see SURVIVAL_PLAYERS).
+     * Like any player, they can't be hurt before their client says it loaded the world, or for 3 seconds.
+     */
     private static ServerPlayer survivalPlayer(GameTestHelper helper, int x, int y, int z, float yaw)
     {
         ServerLevel level = helper.getLevel();

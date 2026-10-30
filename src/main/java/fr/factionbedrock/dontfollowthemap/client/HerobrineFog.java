@@ -8,10 +8,10 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 
 /**
- * While Herobrine stalks the player (standing behind them, waiting for them to turn around), their fog slowly thickens
- * up to the boss fight one, then lifts once he is gone. Applied on top of the overworld fog by AtmosphericFogEnvironmentMixin.
+ * While Herobrine watches the player from afar (a sighting) or stalks them, their fog slowly thickens up to the boss fight one,
+ * then lifts once he is gone. Applied on top of the overworld fog by AtmosphericFogEnvironmentMixin.
  */
-public class StalkFog
+public class HerobrineFog
 {
     private static final int THICKENING_TICKS = 20 * 20;
     private static final int LIFTING_TICKS = 20 * 4;
@@ -31,14 +31,17 @@ public class StalkFog
         }
         if (minecraft.isPaused()) {return;}
         previousAmount = amount;
-        amount = isStalked(minecraft, minecraft.player) ? Math.min(1.0F, amount + 1.0F / THICKENING_TICKS) : Math.max(0.0F, amount - 1.0F / LIFTING_TICKS);
+        amount = isWatched(minecraft, minecraft.player) ? Math.min(1.0F, amount + 1.0F / THICKENING_TICKS) : Math.max(0.0F, amount - 1.0F / LIFTING_TICKS);
     }
 
-    private static boolean isStalked(Minecraft minecraft, LocalPlayer player)
+    /** How thick the fog is, from 0 (none of his) to 1 (the boss fight one). */
+    public static float amount() {return amount;}
+
+    private static boolean isWatched(Minecraft minecraft, LocalPlayer player)
     {
         for (Entity entity : minecraft.level.entitiesForRendering())
         {
-            if (entity instanceof HerobrineApparitionEntity apparition && apparition.isStalking(player)) {return true;}
+            if (entity instanceof HerobrineApparitionEntity apparition && apparition.isFogging(player)) {return true;}
         }
         return false;
     }

@@ -21,7 +21,7 @@ public class PossessedPigEntity extends Pig implements PossessedAnimal
 
     public PossessedPigEntity(EntityType<? extends PossessedPigEntity> type, Level level) {super(type, level);}
 
-    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Pig.createAttributes(), 4.0D);}
+    public static AttributeSupplier.Builder createAttributes() {return Possession.attributes(Pig.createAttributes());}
 
     @Override public Possession getPossession() {return this.possession;}
 
