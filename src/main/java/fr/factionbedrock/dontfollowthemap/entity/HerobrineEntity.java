@@ -10,23 +10,28 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ColorParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
 import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.BossEvent;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
+import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
@@ -35,6 +40,9 @@ import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -43,6 +51,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 
 /**
@@ -57,6 +66,10 @@ public class HerobrineEntity extends Monster
     public static final int DEATH_DURATION = 60;
     private static final int STRIKE_WARNING_TICKS = 30;
     private static final float STRIKE_DAMAGE = 7.0F, STRIKE_RADIUS = 1.6F;
+    /** Against a raised shield: his axe, and a critical blow (half as hard again as his own) from a jump, from this close; between two, a little while. */
+    private static final float CRIT_DAMAGE = 12.0F;
+    private static final double CRIT_RANGE = 4.0D;
+    private static final int CRIT_COOLDOWN = 40, AXE_PUT_AWAY_TICKS = 20;
 
     private final ServerBossEvent bossEvent = Util.make(new ServerBossEvent(Mth.createInsecureUUID(this.random), this.getDisplayName(), BossEvent.BossBarColor.WHITE, BossEvent.BossBarOverlay.NOTCHED_10),
             event -> event.setDarkenScreen(true).setCreateWorldFog(true));
@@ -68,6 +81,10 @@ public class HerobrineEntity extends Monster
     private int strikeTimer = -1;
     private int idleTicks;
     private boolean defeated;
+    /** How he gets to a target that can't be walked to (see PursueGoal). */
+    private final Pursuit pursuit = new Pursuit(this, Pursuit.Rise.FLOAT, new ItemStack(Items.DIAMOND_PICKAXE), this::canHit);
+    /** The jump of his critical blow (-1: none), the ticks before the next one, before his axe goes back. */
+    private int critTicks = -1, critCooldown, axeTicks;
 
     public HerobrineEntity(EntityType<? extends HerobrineEntity> type, Level level)
     {
@@ -85,6 +102,7 @@ public class HerobrineEntity extends Monster
     @Override protected void registerGoals()
     {
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new PursueGoal());
         this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.15D, true));
         this.goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.8D));
         this.goalSelector.addGoal(7, new LookAtPlayerGoal(this, Player.class, 16.0F));
@@ -103,6 +121,7 @@ public class HerobrineEntity extends Monster
         this.bossEvent.setProgress(this.getHealth() / this.getMaxHealth());
         this.updatePhase(level);
         this.tickStrikes(level);
+        if (this.axeTicks > 0 && --this.axeTicks == 0) {this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);}
 
         LivingEntity target = this.getTarget();
         if (!this.isInArena(target))
@@ -118,6 +137,8 @@ public class HerobrineEntity extends Monster
             return;
         }
         this.idleTicks = 0;
+        this.pursuit.track(level, target);
+        this.answerShield(level, target);
 
         this.blinkCooldown--;
         this.strikeCooldown--;
@@ -133,6 +154,8 @@ public class HerobrineEntity extends Monster
                 if (next != target) {this.setTarget(next);}
                 this.blinkCooldown = (this.phase == 3 ? 50 : 90) + this.random.nextInt(60);
             }
+            //no room around them (on a pillar...): not again at once
+            else {this.blinkCooldown = 20;}
         }
         if (this.strikeCooldown <= 0 && this.strikeTimer < 0)
         {
@@ -182,6 +205,78 @@ public class HerobrineEntity extends Monster
         level.sendParticles(ParticleTypes.LARGE_SMOKE, this.getX(), this.getY() + 1.0D, this.getZ(), 50, 0.5D, 1.0D, 0.5D, 0.05D);
     }
 
+    //walls, pillars, shields
+    private boolean canHit(LivingEntity target) {return this.isWithinMeleeAttackRange(target) && this.getSensing().hasLineOfSight(target);}
+
+    /** A shield raised against him: out comes his axe, he jumps, and his critical blow knocks the shield aside for a while (as any axe does). */
+    private void answerShield(ServerLevel level, LivingEntity target)
+    {
+        if (this.critTicks >= 0)
+        {
+            this.tickCrit(level, target);
+            return;
+        }
+        if (this.critCooldown > 0)
+        {
+            this.critCooldown--;
+            return;
+        }
+        if (!this.onGround() || !Players.isShieldedFrom(target, this) || this.distanceTo(target) > CRIT_RANGE || !this.hasLineOfSight(target)) {return;}
+        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_AXE));
+        this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        this.axeTicks = 0;
+        this.jumpFromGround();
+        this.addDeltaMovement(target.position().subtract(this.position()).multiply(1.0D, 0.0D, 1.0D).normalize().scale(0.3D));
+        this.critTicks = 0;
+    }
+
+    /** Coming down from his jump, within reach: the blow. Landed without it: he tries again later. */
+    private void tickCrit(ServerLevel level, LivingEntity target)
+    {
+        this.critTicks++;
+        boolean falling = !this.onGround() && this.getDeltaMovement().y < 0.0D;
+        if (falling && target.getBoundingBox().distanceToSqr(this.getEyePosition()) <= Pursuit.HOLE_REACH * Pursuit.HOLE_REACH && this.hasLineOfSight(target))
+        {
+            this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+            target.hurtServer(level, this.damageSources().mobAttack(this), CRIT_DAMAGE);
+            level.getChunkSource().sendToTrackingPlayersAndSelf(target, new ClientboundAnimatePacket(target, ClientboundAnimatePacket.CRITICAL_HIT));
+            level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.HOSTILE, 1.0F, 1.0F);
+        }
+        else if (this.critTicks < 4 || !this.onGround()) {return;}
+        this.critTicks = -1;
+        this.critCooldown = CRIT_COOLDOWN;
+        this.axeTicks = AXE_PUT_AWAY_TICKS;
+    }
+
+    /** While his target can't be walked to, he gets to them another way (see Pursuit), and strikes through the hole he made, from where a player could. */
+    private class PursueGoal extends Goal
+    {
+        private int attackCooldown;
+
+        PursueGoal() {this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));}
+
+        @Override public boolean canUse()
+        {
+            LivingEntity target = HerobrineEntity.this.getTarget();
+            return target != null && HerobrineEntity.this.pursuit.isActive() && !HerobrineEntity.this.canHit(target);
+        }
+
+        @Override public boolean requiresUpdateEveryTick() {return true;}
+
+        @Override public void tick()
+        {
+            if (this.attackCooldown > 0) {this.attackCooldown--;}
+            LivingEntity target = HerobrineEntity.this.getTarget();
+            if (target == null || !(HerobrineEntity.this.level() instanceof ServerLevel level) || HerobrineEntity.this.pursuit.act(level, target)) {return;}
+            if (this.attackCooldown == 0 && HerobrineEntity.this.pursuit.canHitThrough(target))
+            {
+                HerobrineEntity.this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+                HerobrineEntity.this.doHurtTarget(level, target);
+                this.attackCooldown = 20;
+            }
+        }
+    }
+
     //blink
     private boolean blinkBehind(ServerLevel level, Entity target)
     {
@@ -203,6 +298,7 @@ public class HerobrineEntity extends Monster
 
     private void teleportWithSmoke(ServerLevel level, Vec3 destination)
     {
+        this.pursuit.reset(level);
         HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 1.0F, 1.0F);
         this.teleportTo(destination.x, destination.y, destination.z);
         this.getNavigation().stop();
@@ -326,6 +422,15 @@ public class HerobrineEntity extends Monster
         }
     }
 
+    @Override public void remove(RemovalReason reason)
+    {
+        //no crack left on a block he was mining
+        if (this.level() instanceof ServerLevel level) {this.pursuit.reset(level);}
+        super.remove(reason);
+    }
+
+    //no fall hurts him: he drops from anywhere to get to his target
+    @Override public int getMaxFallDistance() {return 32;}
     @Override public boolean isNoGravity() {return this.isDeadOrDying() || super.isNoGravity();}
     @Override public boolean causeFallDamage(double fallDistance, float damageModifier, DamageSource damageSource) {return false;}
     @Override public boolean canBeAffected(MobEffectInstance effect) {return false;}

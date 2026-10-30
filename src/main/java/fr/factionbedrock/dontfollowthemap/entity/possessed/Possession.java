@@ -1,6 +1,8 @@
 package fr.factionbedrock.dontfollowthemap.entity.possessed;
 
 import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
+import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
+import fr.factionbedrock.dontfollowthemap.entity.Pursuit;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.util.Facing;
 import fr.factionbedrock.dontfollowthemap.util.Players;
@@ -32,7 +34,9 @@ import java.util.UUID;
 /**
  * What Herobrine does with an animal he took over. Same model, same texture, same name: nothing gives it away, except that it stares.
  * It follows its victim at a distance, charges when they come too close (or after staring long enough), strikes once, runs away,
- * and turns back into the plain animal it was once out of sight. Every possessed animal forwards its hooks here.
+ * and turns back into the plain animal it was once out of sight. A victim out of its reach (up on a pillar, walled in) gets a leap
+ * no animal could make, up to 4 blocks high; higher, it waits below them, staring, for 20 to 30 seconds, then turns into Herobrine's stalker.
+ * Every possessed animal forwards its hooks here.
  */
 public class Possession
 {
@@ -43,6 +47,13 @@ public class Possession
     private static final int CLOSE_STARE_TICKS_BEFORE_ATTACK = 20 * 15;
     private static final int ATTACK_TIMEOUT = 20 * 8;
     private static final int MIN_FLEE_TICKS = 20 * 6;
+    /**
+     * Out of its reach for UNREACHABLE_TICKS (no complete path), it besieges its victim: a leap onto them when they are up to MAX_LEAP_HEIGHT blocks higher,
+     * from up to MAX_LEAP_DISTANCE away, one every LEAP_COOLDOWN ticks; then, after SIEGE_MIN_TICKS to SIEGE_MAX_TICKS, Herobrine's stalker instead of it.
+     */
+    private static final int UNREACHABLE_TICKS = 40, LEAP_COOLDOWN = 40;
+    public static final int SIEGE_MIN_TICKS = 20 * 20, SIEGE_MAX_TICKS = 20 * 30;
+    private static final double MAX_LEAP_HEIGHT = 4.5D, MAX_LEAP_DISTANCE = 4.0D;
     /**
      * Its bite (data/dontfollowthemap/damage_type, which armor doesn't stop by itself): 7 hearts with no armor, 3 in full iron, under 2 in diamond.
      * Armor counts more than against an ordinary blow, where it would let 5 hearts through in full iron. 1.5 times more on hard, like any mob's blow.
@@ -56,6 +67,8 @@ public class Possession
     @Nullable private UUID victimId;
     private int phaseTicks;
     private int closeStareTicks;
+    /** ATTACK: how long it has chased a victim it can get to, how long they have been out of its reach, its siege below them. */
+    private int chaseTicks, unreachableTicks, siegeTicks, siegeLength, leapCooldown;
 
     public Possession(Animal animal, PossessableAnimals.Kind<?> kind)
     {
@@ -113,14 +126,24 @@ public class Possession
             case ATTACK ->
             {
                 this.stareAt(victim);
-                if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
+                if (this.animal.onGround() && this.phaseTicks % 10 == 0)
+                {
+                    this.unreachableTicks = Pursuit.canWalkTo(this.animal, victim) ? 0 : Math.min(UNREACHABLE_TICKS, this.unreachableTicks + 10);
+                }
+                if (this.unreachableTicks < UNREACHABLE_TICKS)
+                {
+                    this.siegeTicks = 0;
+                    this.chaseTicks++;
+                    if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
+                }
+                else if (this.besiege(level, victim)) {return;}
                 if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
                 {
                     this.bite(level, victim);
                     level.playSound(null, this.animal.getX(), this.animal.getY(), this.animal.getZ(), this.kind.attackSound(), SoundSource.HOSTILE, 1.0F, 1.0F);
                     this.setPhase(Phase.FLEE);
                 }
-                else if (this.phaseTicks > ATTACK_TIMEOUT) {this.setPhase(Phase.FLEE);}
+                else if (this.chaseTicks > ATTACK_TIMEOUT) {this.setPhase(Phase.FLEE);}
             }
             case FLEE ->
             {
@@ -133,6 +156,50 @@ public class Possession
                 if ((this.phaseTicks > MIN_FLEE_TICKS && outOfSight) || this.phaseTicks > MIN_FLEE_TICKS * 4) {this.release();}
             }
         }
+    }
+
+    /**
+     * Its victim out of its reach: it leaps up onto them if they are not too high, and otherwise waits below them, staring, until Herobrine
+     * comes for them himself (it turns into his stalker). True once it is gone.
+     */
+    private boolean besiege(ServerLevel level, ServerPlayer victim)
+    {
+        if (this.siegeTicks == 0) {this.siegeLength = Mth.nextInt(this.animal.getRandom(), SIEGE_MIN_TICKS, SIEGE_MAX_TICKS);}
+        if (++this.siegeTicks >= this.siegeLength)
+        {
+            HerobrineApparitionEntity.replace(level, this.animal, victim);
+            return true;
+        }
+        if (this.leapCooldown > 0) {this.leapCooldown--;}
+        else if (this.animal.onGround() && this.canLeapTo(victim))
+        {
+            this.leapTo(victim);
+            this.leapCooldown = LEAP_COOLDOWN;
+        }
+        //right below them
+        else if (this.phaseTicks % 20 == 1) {this.animal.getNavigation().moveTo(victim, 1.0D);}
+        return false;
+    }
+
+    //(at the foot of a pillar, the edge of its top block can hide them: it knows where they are anyway)
+    private boolean canLeapTo(Player victim)
+    {
+        double rise = victim.getY() - this.animal.getY();
+        return rise > 0.5D && rise <= MAX_LEAP_HEIGHT && victim.position().subtract(this.animal.position()).horizontalDistance() <= MAX_LEAP_DISTANCE;
+    }
+
+    /** A leap no animal could make, landing a little above their feet. */
+    private void leapTo(Player victim)
+    {
+        Vec3 way = victim.position().subtract(this.animal.position());
+        //fast enough to rise that high against gravity (0.08 per tick), with some margin for the air's drag
+        double up = Math.sqrt(2.0D * 0.08D * (way.y + 0.6D)) * 1.1D;
+        //the air slows it down by 9% a tick: this much ground is covered by the time it is up there, for each unit of speed
+        double covered = (1.0D - Math.pow(0.91D, up / 0.08D)) / 0.09D;
+        Vec3 across = way.multiply(1.0D, 0.0D, 1.0D).scale(1.0D / covered);
+        this.animal.getNavigation().stop();
+        this.animal.setDeltaMovement(across.x, up, across.z);
+        this.animal.needsSync = true;
     }
 
     private void bite(ServerLevel level, Player victim)
@@ -164,6 +231,9 @@ public class Possession
     {
         this.phase = phase;
         this.phaseTicks = 0;
+        this.chaseTicks = 0;
+        this.unreachableTicks = 0;
+        this.siegeTicks = 0;
         this.animal.getNavigation().stop();
     }
 

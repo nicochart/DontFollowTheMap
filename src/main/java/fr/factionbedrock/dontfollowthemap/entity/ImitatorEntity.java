@@ -70,6 +70,8 @@ import java.util.stream.Stream;
  * (it puts one down if there is none around), makes itself an iron or a diamond sword, and attacks them with it.
  * Hit it before it has its sword: it takes the blow, freezes, stares, and Herobrine comes out of it to strike the one who hit it, once, hard.
  * Once it has its sword, it takes three blows before it freezes, stares, shows its real face for an instant, and is gone.
+ * A player who walls themselves in or climbs a pillar gets mined out or brought down (it builds itself a pillar if it must, see Pursuit);
+ * a shield held up against it, it goes round it. Where a player couldn't get to them, it drops its disguise: a stalker comes for them instead.
  */
 public class ImitatorEntity extends PathfinderMob
 {
@@ -93,6 +95,8 @@ public class ImitatorEntity extends PathfinderMob
     private static final double ATTACK_REACH = 3.0D;
     /** The blows it takes once armed before showing its real face. */
     public static final int ARMED_BLOWS = 3;
+    /** How long it tries to get round a raised shield before dropping its disguise. */
+    public static final int SHIELD_PATIENCE = 20 * 4;
     private static final float DIAMOND_SWORD_CHANCE = 0.3F;
     private static final List<Item> HELD_ITEMS = List.of(Items.OAK_PLANKS, Items.OAK_LOG, Items.COBBLESTONE, Items.TORCH, Items.COAL, Items.IRON_INGOT, Items.BREAD, Items.STICK);
     /**
@@ -135,6 +139,10 @@ public class ImitatorEntity extends PathfinderMob
     /** The door it turned around to close. */
     @Nullable private BlockPos closingDoor;
     private int closingTicks;
+    /** How it gets to its prey when they can't be walked to: as a player would, mining and building up. */
+    private final Pursuit pursuit = new Pursuit(this, Pursuit.Rise.BUILD, new ItemStack(Items.IRON_PICKAXE), this::canHit);
+    /** How long its prey has been holding a shield up against it. */
+    private int shieldedTicks;
 
     public ImitatorEntity(EntityType<? extends ImitatorEntity> type, Level level)
     {
@@ -505,6 +513,7 @@ public class ImitatorEntity extends PathfinderMob
         ServerPlayer prey = Players.inLevel(level, this.preyId);
         if (prey != null && Players.isHuntable(prey) && this.distanceToSqr(prey) < GIVE_UP_DISTANCE * GIVE_UP_DISTANCE) {return prey;}
         //gone: it goes back to its business (armed or not, for whoever comes next)
+        this.pursuit.reset(level);
         this.preyId = null;
         this.craftingTable = null;
         this.craftingTicks = -1;
@@ -603,17 +612,42 @@ public class ImitatorEntity extends PathfinderMob
         return null;
     }
 
-    /** Sword in hand: it runs at them and strikes like a player would. */
+    private boolean canHit(LivingEntity target) {return target.getBoundingBox().distanceToSqr(this.getEyePosition()) < ATTACK_REACH * ATTACK_REACH && this.hasLineOfSight(target);}
+
+    /**
+     * Sword in hand: it runs at them and strikes like a player would. Walled in or up on a pillar, they are mined out or brought down (see Pursuit);
+     * a shield held up against it, it goes round them. Where a player couldn't get to them (lava, no room to build up...), or round their shield,
+     * it drops its disguise: a stalker comes for them instead.
+     */
     private void tickAttacking(ServerLevel level, ServerPlayer prey)
     {
+        this.pursuit.track(level, prey);
+        if (this.pursuit.isActive())
+        {
+            if (this.pursuit.isStuck())
+            {
+                this.dropDisguise(level, prey);
+                return;
+            }
+            if (this.pursuit.act(level, prey)) {return;}
+        }
         this.getLookControl().setLookAt(prey, 30.0F, 30.0F);
         boolean inReach = prey.getBoundingBox().distanceToSqr(this.getEyePosition()) < ATTACK_REACH * ATTACK_REACH;
+        boolean shielded = Players.isShieldedFrom(prey, this);
+        this.shieldedTicks = shielded ? this.shieldedTicks + 1 : 0;
+        if (this.shieldedTicks > SHIELD_PATIENCE)
+        {
+            this.dropDisguise(level, prey);
+            return;
+        }
         if (this.tickCount % 5 == 0)
         {
-            this.setSprinting(!inReach);
-            this.getNavigation().moveTo(prey, inReach ? 1.0D : SPRINTING_SPEED_MODIFIER);
+            //behind the shield
+            Vec3 goal = shielded ? prey.position().add(Vec3.directionFromRotation(0.0F, prey.getYHeadRot()).scale(-2.0D)) : prey.position();
+            this.setSprinting(!inReach || shielded);
+            this.getNavigation().moveTo(goal.x, goal.y, goal.z, inReach && !shielded ? 1.0D : SPRINTING_SPEED_MODIFIER);
         }
-        if (inReach && this.attackCooldown == 0 && this.hasLineOfSight(prey))
+        if (inReach && !shielded && this.attackCooldown == 0 && this.hasLineOfSight(prey))
         {
             this.swingForAttack(InteractionHand.MAIN_HAND);
             this.doHurtTarget(level, prey);
@@ -621,11 +655,19 @@ public class ImitatorEntity extends PathfinderMob
         }
     }
 
+    /** No way to get to them as a player would: Herobrine's stalker comes for them instead. */
+    private void dropDisguise(ServerLevel level, ServerPlayer prey)
+    {
+        this.pursuit.reset(level);
+        HerobrineApparitionEntity.replace(level, this, prey);
+    }
+
     /** Caught: it stops pretending, and nothing can hurt it any more. */
     private void unmask(ServerLevel level, Player player, boolean strikesBack)
     {
         this.unmaskedBy = player.getUUID();
         this.strikesBack = strikesBack;
+        this.pursuit.reset(level);
         this.stopUsing(level);
         this.getNavigation().stop();
         this.stopSprinting();
@@ -673,12 +715,18 @@ public class ImitatorEntity extends PathfinderMob
 
     @Override public void remove(RemovalReason reason)
     {
-        //whatever happens, it doesn't leave a chest or a barrel open behind it
-        if (this.openedContainer != null && this.level() instanceof ServerLevel level && level.isLoaded(this.openedContainer)) {setContainerOpen(level, this.openedContainer, false);}
+        //whatever happens, it doesn't leave a chest or a barrel open behind it, nor a crack on a block it was mining
+        if (this.level() instanceof ServerLevel level)
+        {
+            if (this.openedContainer != null && level.isLoaded(this.openedContainer)) {setContainerOpen(level, this.openedContainer, false);}
+            this.pursuit.reset(level);
+        }
         this.openedContainer = null;
         super.remove(reason);
     }
 
+    //no fall hurts it: after its prey, it jumps down from anywhere (not while it pretends, a player wouldn't)
+    @Override public int getMaxFallDistance() {return this.preyId != null ? 32 : super.getMaxFallDistance();}
     @Override public boolean isPushable() {return this.unmaskedBy == null && super.isPushable();}
     @Override public boolean removeWhenFarAway(double distSqr) {return false;}
     @Override public boolean canBeLeashed() {return false;}

@@ -26,12 +26,15 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -78,7 +81,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
      * STRIKE: running at 7.8.
      */
     private static final double CREEP_SPEED = 0.93D, CHARGE_SPEED = 1.18D, STRIKE_SPEED = 1.25D;
-    private static final double STALK_REACH = 1.8D;
+    private static final double STALK_REACH = 1.8D, SHADE_REACH = 1.4D, STRIKE_REACH = 1.6D;
     private static final float STALK_DAMAGE = 7.0F, STRIKE_DAMAGE = 10.0F;
     private static final int STALK_HITS = 3, STALK_DARKNESS_TICKS = 20 * 6;
     /** STALK: it blinks away this long after its blow; it waits this long once back behind its player; it blinks behind them if it can't get closer for this long. */
@@ -112,6 +115,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private double closest = Double.MAX_VALUE;
     /** STALK: whether its player sees it on their screen, as their client says (see setSeenBy). */
     private boolean seenByTarget;
+    /** STALK, SHADE, STRIKE: how it gets to its player when they can't be walked to. */
+    private final Pursuit pursuit = new Pursuit(this, Pursuit.Rise.FLOAT, new ItemStack(Items.DIAMOND_PICKAXE), this::canHit);
 
     public HerobrineApparitionEntity(EntityType<? extends HerobrineApparitionEntity> type, Level level)
     {
@@ -136,6 +141,18 @@ public class HerobrineApparitionEntity extends PathfinderMob
         apparition.faceTowards(target);
         level.addFreshEntity(apparition);
         return apparition;
+    }
+
+    /** Something of his (an imitator, a possessed animal) drops its disguise: a stalker stands where it was, after this player. */
+    public static HerobrineApparitionEntity replace(ServerLevel level, Entity disguise, ServerPlayer target)
+    {
+        Vec3 pos = disguise.position();
+        disguise.discard();
+        HauntEffects.puffOfSmoke(level, pos, 25, DFTMSounds.VANISH, 1.0F, 0.8F);
+        HauntEvents.appearSuddenly(level, pos);
+        HerobrineApparitionEntity stalker = spawn(level, pos, target, Mode.STALK, STALK_LIFETIME);
+        stalker.setFogging(target);
+        return stalker;
     }
 
     /** Crouching on feet, behind the wall whose bottom block is wallBottom, for lifetime ticks at most: see {@link Mode#LURK}. */
@@ -213,15 +230,24 @@ public class HerobrineApparitionEntity extends PathfinderMob
         this.faceTowards(target);
         if (this.mode == Mode.WATCH) {this.watch(level);}
         else if (this.mode == Mode.STALK) {this.stalk(level, target);}
-        else if (this.mode == Mode.SHADE) {this.rush(level, target, 1.4D, 1.4D, 4.0F, 0.0D, new MobEffectInstance(MobEffects.BLINDNESS, 50));}
-        else if (this.mode == Mode.STRIKE) {this.rush(level, target, STRIKE_SPEED, 1.6D, STRIKE_DAMAGE, 0.8D, null);}
+        else if (this.mode == Mode.SHADE) {this.rush(level, target, 1.4D, 4.0F, 0.0D, new MobEffectInstance(MobEffects.BLINDNESS, 50));}
+        else if (this.mode == Mode.STRIKE) {this.rush(level, target, STRIKE_SPEED, STRIKE_DAMAGE, 0.8D, null);}
     }
 
+    /** How close it must be to hit its player (STALK, SHADE, STRIKE), when they can be walked to. */
+    private double reach() {return switch (this.mode) {case STALK -> STALK_REACH; case SHADE -> SHADE_REACH; case STRIKE -> STRIKE_REACH; default -> 0.0D;};}
+
+    private boolean canHit(LivingEntity target) {return this.distanceTo(target) < this.reach() && this.hasLineOfSight(target);}
+
     /** SHADE, STRIKE: runs at its player and hits them once, then it is gone. */
-    private void rush(ServerLevel level, ServerPlayer target, double speed, double reach, float damage, double extraKnockback, @Nullable MobEffectInstance effect)
+    private void rush(ServerLevel level, ServerPlayer target, double speed, float damage, double extraKnockback, @Nullable MobEffectInstance effect)
     {
+        //walls, a pillar...: it gets to them another way
+        this.pursuit.track(level, target);
+        if (this.pursuit.isActive() && this.pursuit.act(level, target)) {return;}
         if (this.tickCount % 5 == 1) {this.getNavigation().moveTo(target, speed);}
-        if (this.distanceTo(target) >= reach) {return;}
+        if (!this.canHit(target) && !this.pursuit.canHitThrough(target)) {return;}
+        if (Players.isShieldedFrom(target, this)) {this.blinkRightBehind(level, target);}
         this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
         DamageSource source = this.damageSources().mobAttack(this);
         if (target.hurtServer(level, source, damage))
@@ -249,13 +275,23 @@ public class HerobrineApparitionEntity extends PathfinderMob
             this.getNavigation().stop();
             return;
         }
+        //walls, a pillar...: it gets to them another way (unless there is none: then it comes back from behind them, see below)
+        this.pursuit.track(level, target);
+        if (this.pursuit.isActive() && !this.pursuit.isStuck() && this.pursuit.act(level, target))
+        {
+            this.stuckTicks = 0;
+            this.closest = Double.MAX_VALUE;
+            return;
+        }
         //it runs once it is on their screen
         double speed = this.seenByTarget ? CHARGE_SPEED : CREEP_SPEED;
         if (this.tickCount % 5 == 1) {this.getNavigation().moveTo(target, speed);}
         else {this.getNavigation().setSpeedModifier(speed);}
         double distance = this.distanceTo(target);
-        if (distance < STALK_REACH && this.hasLineOfSight(target))
+        if (this.canHit(target) || this.pursuit.canHitThrough(target))
         {
+            //a raised shield: it is behind them at once
+            if (Players.isShieldedFrom(target, this)) {this.blinkRightBehind(level, target);}
             this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
             if (target.hurtServer(level, this.damageSources().mobAttack(this), STALK_DAMAGE)) {target.addEffect(new MobEffectInstance(MobEffects.DARKNESS, STALK_DARKNESS_TICKS), this);}
             this.blinkTicks = BLINK_AFTER_BLOW_TICKS;
@@ -275,6 +311,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     /** STALK: gone in a puff of smoke, back behind its player, out of their sight, where it waits a moment. */
     private void blinkBehind(ServerLevel level, ServerPlayer target)
     {
+        this.pursuit.reset(level);
         HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
         Vec3 spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 110.0D, 180.0D);
         if (spot != null)
@@ -286,6 +323,23 @@ public class HerobrineApparitionEntity extends PathfinderMob
         this.waitTicks = WAIT_TICKS;
         this.closest = Double.MAX_VALUE;
         this.stuckTicks = 0;
+    }
+
+    /** A shield raised against it: right behind its player in a blink, out of the shield's way (unless there is no room there). */
+    private void blinkRightBehind(ServerLevel level, LivingEntity target)
+    {
+        Vec3 back = Vec3.directionFromRotation(0.0F, target.getYHeadRot()).reverse();
+        for (double distance = 1.2D; distance <= 2.0D; distance += 0.4D)
+        {
+            Vec3 spot = target.position().add(back.scale(distance));
+            BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(spot.y) + 1, Mth.floor(spot.y) - 1);
+            if (ground == null) {continue;}
+            this.pursuit.reset(level);
+            HauntEffects.puffOfSmoke(level, this.position(), 15, DFTMSounds.BLINK, 0.6F, 1.3F);
+            this.teleportTo(spot.x, ground.getY(), spot.z);
+            this.faceTowards(target);
+            return;
+        }
     }
 
     /** It stares at its player, but anybody who comes close to it or stares back long enough makes it vanish (and saw it), not only that one. */
@@ -347,17 +401,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
         return length > 0.0D && view.dot(toThis.scale(1.0D / length)) > 1.0D - 0.03D / Math.max(1.0D, length / 8.0D) && player.hasLineOfSight(this);
     }
 
-    public void faceTowards(Entity target)
-    {
-        double dx = target.getX() - this.getX(), dz = target.getZ() - this.getZ();
-        double dy = target.getEyeY() - this.getEyeY();
-        float yaw = Facing.yawTowards(dx, dz);
-        float pitch = (float) -(Mth.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * Mth.RAD_TO_DEG);
-        this.setYRot(yaw);
-        this.setYHeadRot(yaw);
-        this.setYBodyRot(yaw);
-        this.setXRot(pitch);
-    }
+    public void faceTowards(Entity target) {Facing.turn(this, new Vec3(target.getX(), target.getEyeY(), target.getZ()));}
 
     public void vanish(ServerLevel level, boolean withSmoke) {this.vanish(level, withSmoke, null);}
 
@@ -366,6 +410,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         if (this.vanished) {return;}
         this.vanished = true;
+        this.pursuit.reset(level);
         if (withSmoke) {HauntEffects.puffOfSmoke(level, this.position(), 25, DFTMSounds.VANISH, 1.0F, 1.0F);}
         ServerPlayer target = this.getTargetPlayer();
         boolean targetAround = target != null && target.level() == level && this.distanceToSqr(target) < 64.0D * 64.0D;
@@ -400,6 +445,15 @@ public class HerobrineApparitionEntity extends PathfinderMob
         if (target != null) {this.blinkBehind(level, target);}
     }
 
+    @Override public void remove(RemovalReason reason)
+    {
+        //no crack left on a block it was mining
+        if (this.level() instanceof ServerLevel level) {this.pursuit.reset(level);}
+        super.remove(reason);
+    }
+
+    //no fall hurts it: it drops from anywhere to get to its player
+    @Override public int getMaxFallDistance() {return 32;}
     @Override public boolean isPushable() {return false;}
     @Override public void push(Entity entity) {}
     @Override protected void doPush(Entity entity) {}

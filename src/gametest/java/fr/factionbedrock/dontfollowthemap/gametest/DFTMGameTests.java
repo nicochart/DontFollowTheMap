@@ -28,6 +28,8 @@ import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
+import fr.factionbedrock.dontfollowthemap.util.Facing;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import fr.factionbedrock.dontfollowthemap.util.SignWoods;
 import fr.factionbedrock.dontfollowthemap.world.SealPiece;
 import fr.factionbedrock.dontfollowthemap.world.SealShrines;
@@ -61,6 +63,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -83,6 +86,7 @@ import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.BlocksAttacks;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
@@ -107,6 +111,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -121,9 +126,10 @@ public class DFTMGameTests
 {
     /**
      * Tests with players in survival run on their own (data/dontfollowthemap/test_environment): the Herobrine of any other test would fight them.
-     * The one where Herobrine fights several of them runs alone: he would draw the players of the other ones into his fight.
+     * The ones where Herobrine fights survival players each run alone: he would draw the players of the other ones into his fight.
      */
-    private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players", HEROBRINE_FIGHT = "dontfollowthemap:herobrine_fight";
+    private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players", HEROBRINE_FIGHT = "dontfollowthemap:herobrine_fight",
+            HEROBRINE_SHIELD = "dontfollowthemap:herobrine_shield", HEROBRINE_WALLS = "dontfollowthemap:herobrine_walls";
 
     //progression and saving
     @GameTest
@@ -1319,6 +1325,284 @@ public class DFTMGameTests
         level.getEntitiesOfClass(ItemEntity.class, new AABB(herobrine.blockPosition()).inflate(4.0D), item -> item.getItem().is(DFTMItems.SEAL_FRAGMENT)).forEach(ItemEntity::discard);
         List.of(fighter, away, late).forEach(DFTMGameTests::removePlayer);
         helper.succeed();
+    }
+
+    //players out of reach: walled in, up on a pillar, behind a shield
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 16)
+    public void stalkerMinesAHoleInAWallAndHitsThroughIt(GameTestHelper helper)
+    {
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        List<BlockPos> cell = cell(helper, 4, 4);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 4, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 1));
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, -2.5D);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(stalker.getMainHandItem().is(Items.DIAMOND_PICKAXE), "Walled in, the player must be mined out, a pickaxe in hand"))
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() < player.getMaxHealth(), "Through the hole, the stalker must hit the player"))
+                .thenExecute(() ->
+                {
+                    long mined = cell.stream().filter(pos -> helper.getLevel().getBlockState(pos).isAir()).count();
+                    helper.assertTrue(mined >= 1 && mined <= 2, "Only a hole, not a whole way in (" + mined + " blocks mined)");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 16)
+    public void stalkerMinesThePillarFromUnderAPlayer(GameTestHelper helper)
+    {
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        BlockPos top = pillar(helper, 4, 4, 3);
+        ServerPlayer player = survivalPlayer(helper, 4, 4, 4, 180.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, -1.5D);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(helper.getLevel().getBlockState(top).isAir(), "Up on a pillar within reach, what the player stands on must be mined"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(player.getHealth() == player.getMaxHealth(), "The player must be brought down, not hit from below");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 16)
+    public void stalkerFloatsUpToMineAHighPillar(GameTestHelper helper)
+    {
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        BlockPos top = pillar(helper, 4, 4, 8);
+        ServerPlayer player = survivalPlayer(helper, 4, 9, 4, 180.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, 0.5D);
+        double ground = helper.absoluteVec(new Vec3(0.0D, 1.0D, 0.0D)).y;
+        boolean[] floated = {false};
+        helper.onEachTick(() -> floated[0] |= stalker.isNoGravity() && stalker.getY() > ground + 0.5D);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(helper.getLevel().getBlockState(top).isAir(), "Up on a high pillar, what the player stands on must be mined"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(floated[0], "Out of reach from the ground, it must float up first");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 600, skyAccess = true, padding = 16)
+    public void imitatorBuildsUpToMineAHighPillar(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        BlockPos table = place(helper, 1, 1, 4, Blocks.CRAFTING_TABLE), top = pillar(helper, 4, 6, 8);
+        ServerPlayer player = survivalPlayer(helper, 3, 1, 3, 0.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(2, 1, 4)), player, List.of(table));
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isArmed(), "With a player close, it must make itself a sword"))
+                //who climbs out of its reach
+                .thenExecute(() -> teleport(helper, player, 4, 9, 6, 0.0F))
+                .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(top).isAir(), "It must bring the player down from their high pillar"))
+                .thenExecute(() ->
+                {
+                    long built = BlockPos.betweenClosedStream(top.offset(-4, -8, -4), top.offset(4, 0, 4))
+                            .filter(pos -> (pos.getX() != top.getX() || pos.getZ() != top.getZ()) && level.getBlockState(pos).is(Blocks.COBBLESTONE)).count();
+                    helper.assertTrue(built > 0, "Out of reach from the ground, it must build itself a pillar first");
+                    imitator.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 12)
+    public void possessedAnimalLeapsOntoALowPillar(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.GRASS_BLOCK);
+        removeBarriers(helper);
+        pillar(helper, 4, 6, 3);
+        ServerPlayer player = survivalPlayer(helper, 4, 4, 6, 180.0F);
+        Animal sheep = PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(4, 1, 2)), player);
+        //provoked: it charges
+        sheep.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(player.getHealth() < player.getMaxHealth(), "Up on a pillar 3 blocks high, the player must still be bitten: the animal leaps");
+            level.getEntitiesOfClass(Sheep.class, helper.getBounds().inflate(16.0D)).forEach(Entity::discard);
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = Possession.SIEGE_MAX_TICKS + 200, skyAccess = true, padding = 12)
+    public void possessedAnimalBesiegingAHighPillarTurnsIntoAStalker(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.GRASS_BLOCK);
+        removeBarriers(helper);
+        pillar(helper, 4, 6, 8);
+        ServerPlayer player = survivalPlayer(helper, 4, 9, 6, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        Animal sheep = PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(4, 1, 2)), player);
+        sheep.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+        helper.runAfterDelay(Possession.SIEGE_MIN_TICKS - 40, () -> helper.assertTrue(sheep.isAlive(), "It must wait below the player for 20 seconds at least"));
+        helper.succeedWhen(() ->
+        {
+            List<HerobrineApparitionEntity> stalkers = stalkersAfter(helper, player);
+            helper.assertTrue(sheep.isRemoved() && !stalkers.isEmpty(), "After its siege, Herobrine's stalker must come instead of it");
+            stalkers.forEach(Entity::discard);
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 12)
+    public void stalkerBlinksBehindARaisedShield(GameTestHelper helper)
+    {
+        floor(helper, -4, 11, Blocks.STONE);
+        removeBarriers(helper);
+        //facing the stalker, the shield up
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 1));
+        raiseShield(player);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, 0.5D);
+        helper.assertTrue(Players.isShieldedFrom(player, stalker), "The player's shield must stand in the stalker's way");
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(player.getHealth() < player.getMaxHealth(), "A raised shield must not stop it: it blinks behind the player");
+            stalker.discard();
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 600, skyAccess = true, padding = 12)
+    public void imitatorThatCantGetRoundAShieldTurnsIntoAStalker(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.STONE);
+        removeBarriers(helper);
+        BlockPos table = place(helper, 6, 1, 4, Blocks.CRAFTING_TABLE);
+        ServerPlayer player = survivalPlayer(helper, 2, 1, 2, 0.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(2, 1, 5)), player, List.of(table));
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isArmed(), "With a player close, it must make itself a sword"))
+                .thenExecute(() ->
+                {
+                    raiseShield(player);
+                    //whom the player keeps facing
+                    helper.onEachTick(() -> {if (!imitator.isRemoved()) {turnTowards(player, imitator);}});
+                })
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isRemoved() && !stalkersAfter(helper, player).isEmpty(), "Unable to get round the shield, it must drop its disguise: a stalker comes instead"))
+                .thenExecute(() ->
+                {
+                    stalkersAfter(helper, player).forEach(Entity::discard);
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = HEROBRINE_SHIELD, maxTicks = 400, skyAccess = true, padding = 8)
+    public void herobrineKnocksARaisedShieldAsideWithAnAxe(GameTestHelper helper)
+    {
+        floor(helper, -4, 11, Blocks.STONE);
+        HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(4, 1, 1));
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        raiseShield(player);
+        herobrine.setTarget(player);
+        boolean[] axe = {false};
+        helper.onEachTick(() ->
+        {
+            //the player keeps facing him
+            turnTowards(player, herobrine);
+            axe[0] |= herobrine.getMainHandItem().is(Items.DIAMOND_AXE);
+        });
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(axe[0] && player.getCooldowns().isOnCooldown(player.getOffhandItem()), "Herobrine's axe must knock the raised shield aside");
+            herobrine.discard();
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = HEROBRINE_WALLS, maxTicks = 400, skyAccess = true, padding = 8)
+    public void herobrineMinesHisWayToAWalledInPlayer(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.STONE);
+        removeBarriers(helper);
+        List<BlockPos> cell = cell(helper, 4, 6);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 3));
+        HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(4, 1, 1));
+        herobrine.setTarget(player);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(cell.stream().anyMatch(pos -> level.getBlockState(pos).isAir()), "Walled in, the player must be mined out"))
+                .thenWaitUntil(() -> helper.assertTrue(herobrine.getLastHurtMob() == player, "Through the hole, he must strike the player"))
+                .thenExecute(() ->
+                {
+                    herobrine.discard();
+                    level.getEntitiesOfClass(HerobrineApparitionEntity.class, helper.getBounds().inflate(16.0D)).forEach(Entity::discard);
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    /** A stalker after this player, standing there (x and z of the test area, on its floor). */
+    private static HerobrineApparitionEntity stalker(GameTestHelper helper, ServerPlayer player, double x, double z)
+    {
+        HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(helper.getLevel(), helper.absoluteVec(new Vec3(x, 1.0D, z)), player, HerobrineApparitionEntity.Mode.STALK, HerobrineApparitionEntity.STALK_LIFETIME);
+        stalker.setFogging(player);
+        return stalker;
+    }
+
+    private static List<HerobrineApparitionEntity> stalkersAfter(GameTestHelper helper, ServerPlayer player)
+    {
+        return helper.getLevel().getEntitiesOfClass(HerobrineApparitionEntity.class, helper.getBounds().inflate(16.0D), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.STALK && apparition.getTargetPlayer() == player);
+    }
+
+    /** A pillar of cobblestone on the floor at x and z, this many blocks high: gives its top block. */
+    private static BlockPos pillar(GameTestHelper helper, int x, int z, int height)
+    {
+        for (int y = 1; y <= height; y++) {helper.setBlock(x, y, z, Blocks.COBBLESTONE);}
+        return helper.absolutePos(new BlockPos(x, height, z));
+    }
+
+    /** Cobblestone walls 2 high around x and z, and a roof: the blocks of this cell. */
+    private static List<BlockPos> cell(GameTestHelper helper, int x, int z)
+    {
+        List<BlockPos> blocks = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                for (int y = 1; y <= 3; y++)
+                {
+                    if (dx == 0 && dz == 0 && y < 3) {continue;}
+                    blocks.add(place(helper, x + dx, y, z + dz, Blocks.COBBLESTONE));
+                }
+            }
+        }
+        return blocks;
+    }
+
+    /** A shield held up at once (a real one takes a quarter of a second, and mock players never tick). */
+    private static void raiseShield(ServerPlayer player)
+    {
+        ItemStack shield = new ItemStack(Items.SHIELD);
+        BlocksAttacks blocks = shield.get(DataComponents.BLOCKS_ATTACKS);
+        shield.set(DataComponents.BLOCKS_ATTACKS, new BlocksAttacks(0.0F, blocks.disableCooldownScale(), blocks.damageReductions(), blocks.itemDamage(), blocks.bypassedBy(), blocks.blockSound(), blocks.disableSound()));
+        player.setItemInHand(InteractionHand.OFF_HAND, shield);
+        player.startUsingItem(InteractionHand.OFF_HAND);
+    }
+
+    private static void turnTowards(ServerPlayer player, Entity entity)
+    {
+        float yaw = Facing.yawTowards(entity.getX() - player.getX(), entity.getZ() - player.getZ());
+        player.setYRot(yaw);
+        player.setYHeadRot(yaw);
     }
 
     //helpers

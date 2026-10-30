@@ -41,6 +41,8 @@ public class HerobrineRenderer extends HumanoidMobRenderer<Mob, HumanoidRenderSt
         super.extractRenderState(entity, state, partialTicks);
         //no red flash while he fades away
         if (state.deathTime > 0.0F) {state.hasRedOverlay = false;}
+        //floating (see Pursuit): his legs stay still
+        else if (entity.isNoGravity()) {state.walkAnimationSpeed = 0.0F;}
     }
 
     @Override public Identifier getTextureLocation(HumanoidRenderState state) {return STEVE;}

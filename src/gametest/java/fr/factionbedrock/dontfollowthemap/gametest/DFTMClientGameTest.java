@@ -39,6 +39,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 
 /**
  * Client game test: ./gradlew runClientGameTest
@@ -245,6 +247,39 @@ public class DFTMClientGameTest implements FabricClientGameTest
             server.runCommand("effect clear @a");
             //the fog lifts once he is gone
             context.waitTicks(20 * 5);
+
+            //walled in (in glass, to see him): he mines his way in, a pickaxe in hand, the glass cracking
+            server.runCommand("effect give @a minecraft:resistance 60 4 true");
+            server.runCommand("fill -1 -61 -1 1 -58 1 minecraft:glass hollow");
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, 6.5D), player, HerobrineApparitionEntity.Mode.STALK, 20 * 60).setFogging(player);
+            });
+            context.waitFor(client -> clientStalker(client, stalker -> stalker.getMainHandItem().is(Items.DIAMOND_PICKAXE)), 20 * 15);
+            context.waitTicks(4);
+            context.takeScreenshot("dftm_herobrine_mining");
+            discardEverythingButPlayers(server);
+            server.runCommand("fill -1 -61 -1 1 -58 1 minecraft:air");
+            server.runCommand("fill -1 -61 -1 1 -61 1 minecraft:grass_block");
+            //up on a high pillar: he floats up to mine it from under the player's feet
+            server.runCommand("fill 0 -60 0 0 -52 0 minecraft:cobblestone");
+            //at the edge, looking down: he comes up along the pillar
+            server.runCommand("tp @a 0.5 -51 0.9 0 85");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, 5.5D), player, HerobrineApparitionEntity.Mode.STALK, 20 * 60).setFogging(player);
+            });
+            context.waitFor(client -> clientStalker(client, stalker -> stalker.isNoGravity() && stalker.getMainHandItem().is(Items.DIAMOND_PICKAXE)), 20 * 15);
+            context.waitTicks(4);
+            context.takeScreenshot("dftm_herobrine_floating");
+            discardEverythingButPlayers(server);
+            server.runCommand("fill 0 -60 0 0 -52 0 minecraft:air");
+            server.runCommand("tp @a 0.5 -60 0.5 180 0");
+            server.runCommand("effect clear @a");
+            context.waitFor(client -> HauntedScreen.strength() == 0.0F, 20 * 10);
 
             //a sudden apparition, on what the player just killed: the screen jolts at once, then settles down
             context.runOnClient(client -> check(HauntedScreen.strength() == 0.0F, "With him gone for a while, the screen effect must be over"));
@@ -485,6 +520,13 @@ public class DFTMClientGameTest implements FabricClientGameTest
     private static ImitatorEntity imitator(MinecraftServer server)
     {
         return server.overworld().getEntitiesOfClass(ImitatorEntity.class, new AABB(-16.0D, -64.0D, -16.0D, 16.0D, -50.0D, 16.0D)).getFirst();
+    }
+
+    /** Whether this client sees a stalker like that. */
+    private static boolean clientStalker(Minecraft client, Predicate<HerobrineApparitionEntity> like)
+    {
+        for (Entity entity : client.level.entitiesForRendering()) {if (entity instanceof HerobrineApparitionEntity apparition && like.test(apparition)) {return true;}}
+        return false;
     }
 
     private static HerobrineApparitionEntity stalker(MinecraftServer server)
