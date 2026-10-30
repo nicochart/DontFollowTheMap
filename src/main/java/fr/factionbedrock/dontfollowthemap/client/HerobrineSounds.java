@@ -74,7 +74,7 @@ public class HerobrineSounds
     public static boolean isFightMusicOn() {return FIGHT_MUSIC.isOn();}
     public static boolean isAmbienceOn() {return AMBIENCE.isOn();}
 
-    /** How strongly the player feels a watching Herobrine right now, from 0 (not at all: no ambience) to 1 (the screen effect follows it, see HauntedScreen). */
+    /** How strongly the player feels a watching Herobrine right now, from 0 (not at all: no ambience) to 1 (the screen effect has its own rules, see HauntedScreen). */
     public static float presence() {return presence;}
 
     /** Herobrine is being summoned at that seal (see SealEvents): his music starts now, so that its rise is over by the time he appears. */

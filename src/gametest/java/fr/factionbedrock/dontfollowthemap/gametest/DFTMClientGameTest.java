@@ -121,7 +121,7 @@ public class DFTMClientGameTest implements FabricClientGameTest
             {
                 check(HerobrineSounds.isAmbienceOn(), "Close to him, the player must hear his ambience");
                 check(HerobrineSounds.presence() > 0.8F, "Close to him and looking at him, the player must feel him fully (" + HerobrineSounds.presence() + ")");
-                check(client.gameRenderer.getAppliedPostEffects().contains(HauntedScreen.EFFECT), "Close to him, the screen must turn into an old film");
+                check(client.gameRenderer.getAppliedPostEffects().contains(HauntedScreen.EFFECT), "Seeing him, the screen must turn into an old film");
                 check(ScrambledCoordinates.isActive() && !positionLines(client).getFirst().equals(realPosition(client)), "With him around, the debug screen must lie about where the player is");
                 client.debugEntries.toggleDebugOverlay();
             });
@@ -130,7 +130,8 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.runOnClient(client -> client.debugEntries.toggleDebugOverlay());
             discardEverythingButPlayers(server);
 
-            //his ambience from afar: not heard while he stands far behind the player, heard as soon as they look at him
+            //from afar: neither heard nor seen while he stands far behind the player; heard as soon as they look at him,
+            //but seen only right where they look, not in the corner of their eye; looking away is enough for the screen effect to go
             server.runOnServer(minecraftServer ->
             {
                 ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
@@ -142,15 +143,50 @@ public class DFTMClientGameTest implements FabricClientGameTest
                 check(!HerobrineSounds.isAmbienceOn(), "Far behind the player, he must not be heard");
                 check(HauntedScreen.strength() > 0.0F && HauntedScreen.strength() < 0.9F, "Once he is not felt any more, the screen effect must fade out, not stop at once (" + HauntedScreen.strength() + ")");
             });
-            server.runCommand("tp @a 0.5 -60 0.5 180 0");
+            context.waitTicks(50);
+            context.runOnClient(client -> check(HauntedScreen.strength() == 0.0F, "Far behind the player, he must not turn the screen into an old film (" + HauntedScreen.strength() + ")"));
+            //20 degrees away from him
+            server.runCommand("tp @a 0.5 -60 0.5 160 0");
             context.waitTicks(10);
             context.runOnClient(client ->
             {
                 check(HerobrineSounds.isAmbienceOn(), "The player looking at him from afar must hear his ambience");
-                check(HerobrineSounds.presence() > 0.3F && HerobrineSounds.presence() < 0.8F, "From afar, he must be felt more faintly (" + HerobrineSounds.presence() + ")");
+                check(HauntedScreen.strength() == 0.0F, "From afar, he must not be seen in the corner of the eye (" + HauntedScreen.strength() + ")");
             });
-            discardEverythingButPlayers(server);
+            server.runCommand("tp @a 0.5 -60 0.5 180 0");
+            context.waitTicks(10);
+            context.runOnClient(client ->
+            {
+                check(HerobrineSounds.presence() > 0.3F && HerobrineSounds.presence() < 0.8F, "From afar, he must be felt more faintly (" + HerobrineSounds.presence() + ")");
+                check(HauntedScreen.strength() > 0.0F, "Looking right at him from afar, the screen must turn into an old film");
+            });
             server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            context.waitTicks(20);
+            context.runOnClient(client -> check(HauntedScreen.strength() == 0.0F, "From afar, looking away from him must let the screen effect go (" + HauntedScreen.strength() + ")"));
+            discardEverythingButPlayers(server);
+
+            //close (just further than what makes him vanish): not seen while he stands behind the player, but in the corner of their eye already;
+            //once seen, turning their back on him is not enough for the screen effect to go
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, -11.5D), player, HerobrineApparitionEntity.Mode.WATCH, 600);
+            });
+            context.waitTicks(15);
+            context.runOnClient(client ->
+            {
+                check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard");
+                check(HauntedScreen.strength() == 0.0F, "Close behind the player but unseen, he must not turn the screen into an old film (" + HauntedScreen.strength() + ")");
+            });
+            //40 degrees away from him
+            server.runCommand("tp @a 0.5 -60 0.5 140 0");
+            context.waitTicks(10);
+            context.runOnClient(client -> check(HauntedScreen.strength() > 0.0F, "Close, he must be seen in the corner of the eye"));
+            context.takeScreenshot("dftm_apparition_corner_of_the_eye");
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            context.waitTicks(30);
+            context.runOnClient(client -> check(HauntedScreen.strength() > 0.5F, "Close, turning away from him must not stop the screen effect (" + HauntedScreen.strength() + ")"));
+            discardEverythingButPlayers(server);
             context.waitTicks(15);
             context.runOnClient(client -> check(!ScrambledCoordinates.isActive() && positionLines(client).getFirst().equals(realPosition(client)), "With nothing of his around, the debug screen must tell the truth"));
 
@@ -175,7 +211,11 @@ public class DFTMClientGameTest implements FabricClientGameTest
             });
             context.waitTicks(20);
             context.takeScreenshot("dftm_stalk_start");
-            context.runOnClient(client -> check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard"));
+            context.runOnClient(client ->
+            {
+                check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard");
+                check(HauntedScreen.strength() == 0.0F, "Behind the player, the stalker must not turn the screen into an old film before they see him (" + HauntedScreen.strength() + ")");
+            });
             context.waitTicks(20 * 4);
             context.runOnClient(client -> check(client.player.hasEffect(MobEffects.DARKNESS), "Creeping up on the player while their back is turned, he must strike them, with the darkness"));
             context.takeScreenshot("dftm_stalk_struck");

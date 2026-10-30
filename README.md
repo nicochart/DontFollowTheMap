@@ -16,9 +16,11 @@ The haunting grows with the time you spend in the Overworld (one Minecraft day =
 | Haunted | days 3 to 6 | He leaves you **the map**. Signs (mostly of the wood that grows around) and small constructions appear around your home. A sheep, a cow, a pig or a chicken starts staring at you (if you killed them all, one comes from where you can't see)... and its bite hurts: 7 hearts with no armor, 3 in full iron. Someone who looks like a player (a friend of yours, if they are online) walks and sprints around your place like one, opens the doors on its way and turns around to close them, and uses your crafting table and your chests. Come close to it in survival, and it goes to a crafting table (it puts one down if there is none), makes itself an iron or a diamond sword and comes for you with it: once armed, it takes three blows before showing its real face. Hit it before it has its sword, and Herobrine comes out of it to strike you, once, hard. Something invisible follows you for a while and steals what you mine: your blows go right through it until it has what it came for, and it can only be caught while it runs away. While you dig a straight 2x1 tunnel, blocks may be put back behind you, loudly: dig through the top one quickly and you will see who did it; dig the bottom one first, or wait too long, and only a redstone torch will be left. You may wake up in a grave. |
 | Hunted | after day 6, or once he is free | Everything happens more often, and he comes for you while the fog slowly thickens: he creeps up behind you while your back is turned and runs at you once you see him. Each of his blows comes with the darkness, then he is gone, behind you again. Only three blows send him away; until then, he can kill you. |
 
-While Herobrine watches, whoever is close to him or looks at him, and only them, hears his ambience and sees their screen slowly turn into an old,
-worn film that glitches now and then, fainter from afar or in the corner of the eye (scaled by the distortion effects accessibility setting);
-he appears suddenly with his own sound, and the screen jolts all at once.
+While Herobrine watches, whoever is close to him or looks at him, and only them, hears his ambience.
+Whoever sees him, and only them, sees their screen slowly turn into an old, worn film that glitches now and then, fainter from afar
+(scaled by the distortion effects accessibility setting). Close to him, the corner of the eye is enough to see him; from afar, only looking right at him is;
+being close without seeing him isn't. Once he is seen, the film stays as long as he is close, even behind the player's back; it goes once he is far and they look away.
+He appears suddenly with his own sound, and the screen jolts all at once.
 He also plays with the debug screen: while something of his is around, F3 shows random coordinates, and a haunted player who shows the hitboxes
 (F3 + B) sees some that belong to nothing (the thief, being invisible, never has one).
 
