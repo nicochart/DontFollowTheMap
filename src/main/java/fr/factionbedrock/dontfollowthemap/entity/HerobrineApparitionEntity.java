@@ -10,6 +10,7 @@ import fr.factionbedrock.dontfollowthemap.util.Facing;
 import fr.factionbedrock.dontfollowthemap.util.HauntEffects;
 import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -26,6 +27,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
@@ -39,7 +41,10 @@ import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.gameevent.GameEvent;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -67,7 +72,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
         LURK,
         /**
          * Behind the player: it creeps up on them while their back is turned, and runs at them once it is on their screen. Each of its blows comes with
-         * the darkness, then it is gone, behind them again. Only the third blow it takes makes it go away: until then, it can kill.
+         * the darkness, then it is gone, behind them again. Running away from it only brings them face to face with it, sometimes behind a cobweb
+         * it puts in their way. Only the third blow it takes makes it go away: until then, it can kill.
          */
         STALK,
         /** What an imitator hit before it had its sword turns into: it runs at the player who hit it, strikes once, hard, and vanishes. */
@@ -86,6 +92,15 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private static final int STALK_HITS = 3, STALK_DARKNESS_TICKS = 20 * 6;
     /** STALK: it blinks away this long after its blow; it waits this long once back behind its player; it blinks behind them if it can't get closer for this long. */
     private static final int BLINK_AFTER_BLOW_TICKS = 6, WAIT_TICKS = 40, STUCK_TICKS = 20 * 5;
+    /**
+     * STALK: a player running away from it (RUN_DISTANCE covered in the last second, getting farther from it, now FLEE_DISTANCE away at least) finds it
+     * in their way, AHEAD_MIN to AHEAD_MAX blocks ahead of them, once every BLINK_AHEAD_COOLDOWN ticks at most; it stands there for AHEAD_WAIT_TICKS.
+     */
+    private static final double RUN_DISTANCE = 3.0D, FLEE_DISTANCE = 8.0D, AHEAD_MIN = 5.0D, AHEAD_MAX = 8.0D;
+    private static final int BLINK_AHEAD_COOLDOWN = 20 * 4, AHEAD_WAIT_TICKS = 10;
+    /** Half the time, it puts a cobweb in their way instead: in its hand, put down after WEB_PUT_TICKS, its hand down after WEB_HOLD_TICKS. */
+    private static final float WEB_CHANCE = 0.5F;
+    private static final int WEB_PUT_TICKS = 5, WEB_HOLD_TICKS = 14;
     private static final int STARE_TICKS_TO_VANISH = 70;
     /** How long he stays once the top block of his wall is dug. */
     public static final int REVEAL_TICKS = 20;
@@ -115,6 +130,13 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private double closest = Double.MAX_VALUE;
     /** STALK: whether its player sees it on their screen, as their client says (see setSeenBy). */
     private boolean seenByTarget;
+    /** STALK: where its player was a second ago, and how far from it (to tell whether they run away); when it may blink ahead of them again. */
+    @Nullable private Vec3 lastTargetPosition;
+    private double lastDistance;
+    private int nextBlinkAheadTick;
+    /** STALK: where the cobweb in its hand goes (null once it is down), and the ticks before its hand is down again. */
+    @Nullable private BlockPos web;
+    private int webTicks;
     /** STALK, SHADE, STRIKE: how it gets to its player when they can't be walked to. */
     private final Pursuit pursuit = new Pursuit(this, Pursuit.Rise.FLOAT, new ItemStack(Items.DIAMOND_PICKAXE), this::canHit);
 
@@ -227,7 +249,9 @@ public class HerobrineApparitionEntity extends PathfinderMob
             return;
         }
 
-        this.faceTowards(target);
+        //it stares at its player: all of it while it stands, only its head on its way (turned towards them, it couldn't go round anything)
+        if (this.getNavigation().isDone()) {this.faceTowards(target);}
+        else {this.getLookControl().setLookAt(target, 180.0F, 180.0F);}
         if (this.mode == Mode.WATCH) {this.watch(level);}
         else if (this.mode == Mode.STALK) {this.stalk(level, target);}
         else if (this.mode == Mode.SHADE) {this.rush(level, target, 1.4D, 4.0F, 0.0D, new MobEffectInstance(MobEffects.BLINDNESS, 50));}
@@ -261,6 +285,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     /** See {@link Mode#STALK}. */
     private void stalk(ServerLevel level, ServerPlayer target)
     {
+        Vec3 escape = this.tickCount % 20 == 0 ? this.escape(target) : null;
         //its blow struck: it lets them see who it was, for an instant
         if (this.blinkTicks >= 0)
         {
@@ -268,7 +293,13 @@ public class HerobrineApparitionEntity extends PathfinderMob
             if (this.blinkTicks-- == 0) {this.blinkBehind(level, target);}
             return;
         }
-        //back behind them, in the dark
+        //a cobweb for their way in its hand
+        if (this.webTicks > 0)
+        {
+            this.putWeb(level, target);
+            return;
+        }
+        //back behind them, in the dark (or in their way, facing them)
         if (this.waitTicks > 0)
         {
             this.waitTicks--;
@@ -296,22 +327,109 @@ public class HerobrineApparitionEntity extends PathfinderMob
             if (target.hurtServer(level, this.damageSources().mobAttack(this), STALK_DAMAGE)) {target.addEffect(new MobEffectInstance(MobEffects.DARKNESS, STALK_DARKNESS_TICKS), this);}
             this.blinkTicks = BLINK_AFTER_BLOW_TICKS;
         }
-        //kept away (by a door, a ravine, a player running away...): it comes back from behind them
-        else if (this.tickCount % 20 == 0)
+        else if (this.tickCount % 20 == 0) {this.keepUp(level, target, escape, distance);}
+    }
+
+    /** STALK, once a second while it can't hit its player: running away from it, they find it in their way; kept away (by a door, a ravine...), it comes back from behind them. */
+    private void keepUp(ServerLevel level, ServerPlayer target, @Nullable Vec3 escape, double distance)
+    {
+        if (escape != null && this.tickCount >= this.nextBlinkAheadTick)
         {
-            if (distance < this.closest - 1.0D)
-            {
-                this.closest = distance;
-                this.stuckTicks = 0;
-            }
-            else if ((this.stuckTicks += 20) >= STUCK_TICKS) {this.blinkBehind(level, target);}
+            boolean cobweb = this.random.nextFloat() < WEB_CHANCE && !target.isFallFlying() && !target.getAbilities().flying;
+            if (this.blinkAhead(level, target, escape, cobweb)) {return;}
         }
+        if (distance < this.closest - 1.0D)
+        {
+            this.closest = distance;
+            this.stuckTicks = 0;
+        }
+        else if ((this.stuckTicks += 20) >= STUCK_TICKS) {this.blinkBehind(level, target);}
+    }
+
+    /** STALK, once a second: which way its player ran in the last second if they ran away from it, null if they didn't (it remembers where they were, and how far). */
+    @Nullable private Vec3 escape(ServerPlayer target)
+    {
+        Vec3 run = this.lastTargetPosition == null ? Vec3.ZERO : target.position().subtract(this.lastTargetPosition).multiply(1.0D, 0.0D, 1.0D);
+        double distance = this.distanceTo(target), lastDistance = this.lastDistance;
+        this.lastTargetPosition = target.position();
+        this.lastDistance = distance;
+        return run.length() >= RUN_DISTANCE && distance > lastDistance + 0.5D && distance >= FLEE_DISTANCE ? run.normalize() : null;
+    }
+
+    /**
+     * STALK: its player runs away from it, that way: gone in a puff of smoke, it suddenly stands in their way a few blocks ahead, where they see it.
+     * With a cobweb, it puts one down in front of itself, on their way, if there is room. False if there is no place for it ahead of them.
+     */
+    public boolean blinkAhead(ServerLevel level, ServerPlayer target, Vec3 way, boolean cobweb)
+    {
+        for (double ahead = AHEAD_MAX; ahead >= AHEAD_MIN; ahead -= 1.0D)
+        {
+            Vec3 spot = target.position().add(way.scale(ahead));
+            BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(target.getY()) + 2, Mth.floor(target.getY()) - 3);
+            if (ground == null) {continue;}
+            Vec3 feet = Vec3.atBottomCenterOf(ground);
+            if (!HauntSpots.canSee(level, target.getEyePosition(), feet.add(0.0D, this.getEyeHeight(), 0.0D))) {continue;}
+            this.pursuit.reset(level);
+            HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
+            this.teleportTo(feet.x, feet.y, feet.z);
+            this.faceTowards(target);
+            this.getNavigation().stop();
+            HauntEvents.appearSuddenly(level, feet);
+            this.nextBlinkAheadTick = this.tickCount + BLINK_AHEAD_COOLDOWN;
+            this.closest = Double.MAX_VALUE;
+            this.stuckTicks = 0;
+            if (!cobweb || !this.takeOutWeb(level, way)) {this.waitTicks = AHEAD_WAIT_TICKS;}
+            return true;
+        }
+        return false;
+    }
+
+    /** A cobweb in its hand, for the block in front of it on the way of its player (coming from there), on the ground: false if there is no room. */
+    private boolean takeOutWeb(ServerLevel level, Vec3 way)
+    {
+        BlockPos web = BlockPos.containing(this.position().subtract(way));
+        if (!HauntSpots.isReplaceable(level, web) || !level.getBlockState(web.below()).isFaceSturdy(level, web.below(), Direction.UP)) {return false;}
+        this.web = web;
+        this.webTicks = WEB_HOLD_TICKS;
+        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.COBWEB));
+        this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        return true;
+    }
+
+    /** It looks down at where the cobweb goes, puts it down (unless its player is already there), then lets its hand down. */
+    private void putWeb(ServerLevel level, ServerPlayer target)
+    {
+        this.getNavigation().stop();
+        this.webTicks--;
+        if (this.web != null && this.webTicks > WEB_HOLD_TICKS - WEB_PUT_TICKS) {Facing.turn(this, Vec3.atCenterOf(this.web));}
+        else if (this.web != null)
+        {
+            if (HauntSpots.isReplaceable(level, this.web) && !target.getBoundingBox().intersects(new AABB(this.web)))
+            {
+                BlockState cobweb = Blocks.COBWEB.defaultBlockState();
+                level.setBlock(this.web, cobweb, Block.UPDATE_ALL);
+                SoundType sound = cobweb.getSoundType();
+                level.playSound(null, this.web, sound.getPlaceSound(), SoundSource.BLOCKS, (sound.getVolume() + 1.0F) / 2.0F, sound.getPitch() * 0.8F);
+                level.gameEvent(this, GameEvent.BLOCK_PLACE, this.web);
+                this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+            }
+            this.web = null;
+        }
+        if (this.webTicks == 0) {this.putWebAway();}
+    }
+
+    private void putWebAway()
+    {
+        if (this.getMainHandItem().is(Items.COBWEB)) {this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);}
+        this.web = null;
+        this.webTicks = 0;
     }
 
     /** STALK: gone in a puff of smoke, back behind its player, out of their sight, where it waits a moment. */
     private void blinkBehind(ServerLevel level, ServerPlayer target)
     {
         this.pursuit.reset(level);
+        this.putWebAway();
         HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
         Vec3 spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 110.0D, 180.0D);
         if (spot != null)
@@ -454,6 +572,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
 
     //no fall hurts it: it drops from anywhere to get to its player
     @Override public int getMaxFallDistance() {return 32;}
+    //cobwebs don't hold it back (it puts them in its players' way)
+    @Override public void makeStuckInBlock(BlockState state, Vec3 speedMultiplier) {if (!state.is(Blocks.COBWEB)) {super.makeStuckInBlock(state, speedMultiplier);}}
     @Override public boolean isPushable() {return false;}
     @Override public void push(Entity entity) {}
     @Override protected void doPush(Entity entity) {}

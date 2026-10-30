@@ -26,6 +26,9 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.BooleanOp;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -36,8 +39,9 @@ import java.util.function.Predicate;
  * A pickaxe in hand, they mine what stands in between, the block cracking as under a player's pickaxe, only as far as needed:
  * once there is a hole they can hit them through, from as far as a player could, they do. A player standing high (a pillar, a ledge)
  * gets what they stand on mined from under their feet as soon as it is within a player's reach; until it is, Herobrine floats up
- * and the imitator builds itself a pillar. Herobrine also floats over what can't be walked or dug (a ravine, a lava lake).
- * With no way at all, it is stuck: its owner decides what then.
+ * and the imitator builds itself a pillar. Herobrine also floats over what can't be walked or dug (a ravine, a lava lake), and lands
+ * as soon as he can walk on. Floating, he can't step over anything, not even a snow layer or a carpet: once he stops getting any closer,
+ * he mines what he runs into. With no way at all, it is stuck: its owner decides what then.
  */
 public class Pursuit
 {
@@ -50,8 +54,10 @@ public class Pursuit
     /** A target this much higher stands on something that can't be walked up (a pillar, a ledge). */
     private static final double ABOVE = 1.5D;
     private static final double FLOAT_SPEED = 0.15D;
-    /** Floating, it lands once on the ground this close to the target. */
+    /** Floating, it lands once on the ground this close to the target (or anywhere it can walk on). */
     private static final double LANDING_DISTANCE = 2.5D;
+    /** Floating without getting any closer for this long, it mines what it runs into. */
+    private static final int BLOCKED_TICKS = 10;
     /** Without mining, building or getting any closer for this long, there is no way. */
     private static final int STUCK_TICKS = 20 * 5;
 
@@ -120,6 +126,7 @@ public class Pursuit
         }
         //it mines standing still: floating, or on its feet (not halfway through a jump while building up)
         BlockPos block = this.rise == Rise.FLOAT || this.mob.onGround() ? this.blockToMine(level, target, support != null, bringDown ? support : null) : null;
+        if (block == null && this.floating && this.idleTicks >= BLOCKED_TICKS) {block = this.obstacle(level, target, support);}
         if (block != null)
         {
             this.mine(level, block);
@@ -211,6 +218,37 @@ public class Pursuit
     }
 
     private boolean isInReach(BlockPos pos) {return new AABB(pos).distanceToSqr(this.mob.getEyePosition()) <= MINING_REACH * MINING_REACH;}
+
+    /**
+     * Floating, what it runs into on its way to the target: the block most in its way. Not the ground under it (unless the target is down there),
+     * nor the pillar of a target standing high (it gets them down from the top).
+     */
+    @Nullable private BlockPos obstacle(ServerLevel level, LivingEntity target, @Nullable BlockPos support)
+    {
+        Vec3 way = target.position().subtract(this.mob.position());
+        if (way.lengthSqr() < 1.0E-4D) {return null;}
+        Vec3 direction = way.normalize();
+        AABB ahead = this.mob.getBoundingBox().move(direction.scale(0.25D));
+        VoxelShape aheadShape = Shapes.create(ahead);
+        Vec3 center = this.mob.getBoundingBox().getCenter();
+        boolean targetBelow = target.getY() < this.mob.getY() - 1.0D;
+        BlockPos obstacle = null;
+        double mostInTheWay = 0.0D;
+        for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(ahead.minX, ahead.minY, ahead.minZ), BlockPos.containing(ahead.maxX, ahead.maxY, ahead.maxZ)))
+        {
+            if (pos.getY() < this.mob.getBlockY() && !targetBelow) {continue;}
+            if (support != null && pos.getX() == support.getX() && pos.getZ() == support.getZ() && pos.getY() < support.getY()) {continue;}
+            VoxelShape shape = level.getBlockState(pos).getCollisionShape(level, pos);
+            if (shape.isEmpty() || !Shapes.joinIsNotEmpty(shape.move(pos), aheadShape, BooleanOp.AND) || !canMine(level, pos)) {continue;}
+            double inTheWay = Vec3.atCenterOf(pos).subtract(center).dot(direction);
+            if (obstacle == null || inTheWay > mostInTheWay)
+            {
+                obstacle = pos.immutable();
+                mostInTheWay = inTheWay;
+            }
+        }
+        return obstacle;
+    }
 
     /** The first block in the way of its eyes to the target's, null if it sees them. */
     @Nullable private BlockPos blockInTheWay(ServerLevel level, LivingEntity target)
@@ -305,10 +343,11 @@ public class Pursuit
         }
     }
 
-    /** Herobrine only: straight towards the target, through the air; it lands back on the ground close to them. */
+    /** Herobrine only: straight towards the target, through the air; it lands back on the ground close to them, or once it can walk on. */
     private void floatTowards(ServerLevel level, LivingEntity target)
     {
-        if (this.floating && !this.isAbove(target) && this.hasGroundBelow(level) && target.position().subtract(this.mob.position()).horizontalDistance() < LANDING_DISTANCE)
+        boolean landing = target.position().subtract(this.mob.position()).horizontalDistance() < LANDING_DISTANCE || isWalkable(level, this.mob.blockPosition().relative(this.towards(target)));
+        if (this.floating && !this.isAbove(target) && this.hasGroundBelow(level) && landing)
         {
             this.land();
             return;
@@ -350,24 +389,32 @@ public class Pursuit
     private void digTowards(ServerLevel level, LivingEntity target)
     {
         BlockPos feet = this.mob.blockPosition();
-        double dx = target.getX() - this.mob.getX(), dz = target.getZ() - this.mob.getZ();
         //right above them (in a hole they closed over themselves): straight down
-        if (dx * dx + dz * dz < 1.0D && target.getY() < this.mob.getY() - 1.0D)
+        if (target.position().subtract(this.mob.position()).horizontalDistanceSqr() < 1.0D && target.getY() < this.mob.getY() - 1.0D)
         {
             if (canMine(level, feet.below())) {this.mine(level, feet.below());}
             return;
         }
-        Direction towards = Math.abs(dx) > Math.abs(dz) ? (dx > 0.0D ? Direction.EAST : Direction.WEST) : (dz > 0.0D ? Direction.SOUTH : Direction.NORTH);
-        BlockPos next = feet.relative(towards);
+        BlockPos next = feet.relative(this.towards(target));
         for (BlockPos pos : List.of(next.above(), next))
         {
             if (isOpen(level, pos)) {continue;}
             if (canMine(level, pos) && this.isInReach(pos)) {this.mine(level, pos);}
             return;
         }
-        if (HauntSpots.isStandable(level, next) || HauntSpots.isStandable(level, next.below())) {this.mob.getMoveControl().setWantedPosition(next.getX() + 0.5D, next.getY(), next.getZ() + 0.5D, 1.0D);}
+        if (isWalkable(level, next)) {this.mob.getMoveControl().setWantedPosition(next.getX() + 0.5D, next.getY(), next.getZ() + 0.5D, 1.0D);}
         else if (this.rise == Rise.FLOAT) {this.floatTowards(level, target);}
     }
+
+    /** The next block towards the target along the ground (along the axis they are the farthest on). */
+    private Direction towards(LivingEntity target)
+    {
+        double dx = target.getX() - this.mob.getX(), dz = target.getZ() - this.mob.getZ();
+        return Math.abs(dx) > Math.abs(dz) ? (dx > 0.0D ? Direction.EAST : Direction.WEST) : (dz > 0.0D ? Direction.SOUTH : Direction.NORTH);
+    }
+
+    /** Whether that next block can be walked in, or down to. */
+    private static boolean isWalkable(ServerLevel level, BlockPos next) {return HauntSpots.isStandable(level, next) || HauntSpots.isStandable(level, next.below());}
 
     //tools
     /** Takes this out of its pocket (what it held goes in, until put back). */

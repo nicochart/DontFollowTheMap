@@ -95,8 +95,8 @@ public class ImitatorEntity extends PathfinderMob
     private static final double ATTACK_REACH = 3.0D;
     /** The blows it takes once armed before showing its real face. */
     public static final int ARMED_BLOWS = 3;
-    /** How long it tries to get round a raised shield before dropping its disguise. */
-    public static final int SHIELD_PATIENCE = 20 * 4;
+    /** The blows a raised shield may stop before it drops its disguise. */
+    public static final int PARRIED_BLOWS = 6;
     private static final float DIAMOND_SWORD_CHANCE = 0.3F;
     private static final List<Item> HELD_ITEMS = List.of(Items.OAK_PLANKS, Items.OAK_LOG, Items.COBBLESTONE, Items.TORCH, Items.COAL, Items.IRON_INGOT, Items.BREAD, Items.STICK);
     /**
@@ -141,8 +141,8 @@ public class ImitatorEntity extends PathfinderMob
     private int closingTicks;
     /** How it gets to its prey when they can't be walked to: as a player would, mining and building up. */
     private final Pursuit pursuit = new Pursuit(this, Pursuit.Rise.BUILD, new ItemStack(Items.IRON_PICKAXE), this::canHit);
-    /** How long its prey has been holding a shield up against it. */
-    private int shieldedTicks;
+    /** The blows its prey's shield stopped. */
+    private int parriedBlows;
 
     public ImitatorEntity(EntityType<? extends ImitatorEntity> type, Level level)
     {
@@ -615,9 +615,9 @@ public class ImitatorEntity extends PathfinderMob
     private boolean canHit(LivingEntity target) {return target.getBoundingBox().distanceToSqr(this.getEyePosition()) < ATTACK_REACH * ATTACK_REACH && this.hasLineOfSight(target);}
 
     /**
-     * Sword in hand: it runs at them and strikes like a player would. Walled in or up on a pillar, they are mined out or brought down (see Pursuit);
-     * a shield held up against it, it goes round them. Where a player couldn't get to them (lava, no room to build up...), or round their shield,
-     * it drops its disguise: a stalker comes for them instead.
+     * Sword in hand: it runs at them and strikes like a player would, into their shield if they hold one up. Walled in or up on a pillar,
+     * they are mined out or brought down (see Pursuit). Where a player couldn't get to them (lava, no room to build up...), or once their shield
+     * stopped too many of its blows, it drops its disguise: a stalker comes for them instead.
      */
     private void tickAttacking(ServerLevel level, ServerPlayer prey)
     {
@@ -633,24 +633,21 @@ public class ImitatorEntity extends PathfinderMob
         }
         this.getLookControl().setLookAt(prey, 30.0F, 30.0F);
         boolean inReach = prey.getBoundingBox().distanceToSqr(this.getEyePosition()) < ATTACK_REACH * ATTACK_REACH;
-        boolean shielded = Players.isShieldedFrom(prey, this);
-        this.shieldedTicks = shielded ? this.shieldedTicks + 1 : 0;
-        if (this.shieldedTicks > SHIELD_PATIENCE)
-        {
-            this.dropDisguise(level, prey);
-            return;
-        }
         if (this.tickCount % 5 == 0)
         {
-            //behind the shield
-            Vec3 goal = shielded ? prey.position().add(Vec3.directionFromRotation(0.0F, prey.getYHeadRot()).scale(-2.0D)) : prey.position();
-            this.setSprinting(!inReach || shielded);
-            this.getNavigation().moveTo(goal.x, goal.y, goal.z, inReach && !shielded ? 1.0D : SPRINTING_SPEED_MODIFIER);
+            this.setSprinting(!inReach);
+            this.getNavigation().moveTo(prey, inReach ? 1.0D : SPRINTING_SPEED_MODIFIER);
         }
-        if (inReach && !shielded && this.attackCooldown == 0 && this.hasLineOfSight(prey))
+        if (inReach && this.attackCooldown == 0 && this.hasLineOfSight(prey))
         {
+            boolean shielded = Players.isShieldedFrom(prey, this);
             this.swingForAttack(InteractionHand.MAIN_HAND);
-            this.doHurtTarget(level, prey);
+            //their shield stops it (a sword doesn't knock it aside): it keeps hitting, but not for ever
+            if (!this.doHurtTarget(level, prey) && shielded && ++this.parriedBlows >= PARRIED_BLOWS)
+            {
+                this.dropDisguise(level, prey);
+                return;
+            }
             this.attackCooldown = ATTACK_INTERVAL;
         }
     }

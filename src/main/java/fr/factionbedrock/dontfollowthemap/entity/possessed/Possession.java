@@ -34,7 +34,8 @@ import java.util.UUID;
 /**
  * What Herobrine does with an animal he took over. Same model, same texture, same name: nothing gives it away, except that it stares.
  * It follows its victim at a distance, charges when they come too close (or after staring long enough), strikes once, runs away,
- * and turns back into the plain animal it was once out of sight. A victim out of its reach (up on a pillar, walled in) gets a leap
+ * and turns back into the plain animal it was once out of sight. A raised shield stops its bite: it bounces off and bites again,
+ * and the third time, it turns into Herobrine's stalker. A victim out of its reach (up on a pillar, walled in) gets a leap
  * no animal could make, up to 4 blocks high; higher, it waits below them, staring, for 20 to 30 seconds, then turns into Herobrine's stalker.
  * Every possessed animal forwards its hooks here.
  */
@@ -60,6 +61,9 @@ public class Possession
      */
     private static final ResourceKey<DamageType> BITE = ResourceKey.create(Registries.DAMAGE_TYPE, DontFollowTheMap.id("possessed_bite"));
     private static final float BITE_DAMAGE = 14.0F, BITE_DAMAGE_PER_ARMOR_POINT = 8.0F / 15.0F;
+    /** The bites a raised shield may stop before Herobrine comes himself, and the pause after each one. */
+    public static final int PARRIED_BITES = 3;
+    private static final int PARRIED_BITE_PAUSE = 20;
 
     private final Animal animal;
     private final PossessableAnimals.Kind<?> kind;
@@ -69,6 +73,8 @@ public class Possession
     private int closeStareTicks;
     /** ATTACK: how long it has chased a victim it can get to, how long they have been out of its reach, its siege below them. */
     private int chaseTicks, unreachableTicks, siegeTicks, siegeLength, leapCooldown;
+    /** ATTACK: the bites their shield stopped, and the ticks before the next one. */
+    private int parriedBites, biteCooldown;
 
     public Possession(Animal animal, PossessableAnimals.Kind<?> kind)
     {
@@ -137,13 +143,17 @@ public class Possession
                     if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
                 }
                 else if (this.besiege(level, victim)) {return;}
-                if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
+                if (this.biteCooldown > 0) {this.biteCooldown--;}
+                else if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
                 {
-                    this.bite(level, victim);
                     level.playSound(null, this.animal.getX(), this.animal.getY(), this.animal.getZ(), this.kind.attackSound(), SoundSource.HOSTILE, 1.0F, 1.0F);
-                    this.setPhase(Phase.FLEE);
+                    if (this.bite(level, victim)) {this.setPhase(Phase.FLEE);}
+                    //into their shield: it tries again, but Herobrine doesn't wait for ever
+                    else if (++this.parriedBites >= PARRIED_BITES) {HerobrineApparitionEntity.replace(level, this.animal, victim);}
+                    else {this.biteCooldown = PARRIED_BITE_PAUSE;}
+                    return;
                 }
-                else if (this.chaseTicks > ATTACK_TIMEOUT) {this.setPhase(Phase.FLEE);}
+                if (this.chaseTicks > ATTACK_TIMEOUT) {this.setPhase(Phase.FLEE);}
             }
             case FLEE ->
             {
@@ -202,10 +212,21 @@ public class Possession
         this.animal.needsSync = true;
     }
 
-    private void bite(ServerLevel level, Player victim)
+    /** True if it bit them, false if a shield held up against it stopped it. */
+    private boolean bite(ServerLevel level, Player victim)
     {
-        DamageSource bite = new DamageSource(level.registryAccess().lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(BITE), this.animal);
         float damage = biteDamage(victim.getArmorValue());
+        //its bite goes through armor, which would take it through shields too: the shield gets an ordinary blow, which it stops (and wears out from)
+        if (Players.isShieldedFrom(victim, this.animal))
+        {
+            DamageSource blow = this.animal.damageSources().mobAttack(this.animal);
+            victim.hurtServer(level, blow, damage);
+            //it bounces off (its path is over: back where it started, the same path again would count as already walked)
+            this.animal.getNavigation().stop();
+            this.animal.knockback(0.5D, victim.getX() - this.animal.getX(), victim.getZ() - this.animal.getZ(), blow, 0.0F);
+            return false;
+        }
+        DamageSource bite = new DamageSource(level.registryAccess().lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(BITE), this.animal);
         if (victim.hurtServer(level, bite, damage))
         {
             //the cow's charge throws them back
@@ -214,6 +235,7 @@ public class Possession
             if (knockback > 0.0D) {victim.knockback(knockback * 0.5D, Mth.sin(yaw), -Mth.cos(yaw), bite, damage);}
         }
         this.animal.setLastHurtMob(victim);
+        return true;
     }
 
     /** Head and body turned towards the victim. */
@@ -234,6 +256,8 @@ public class Possession
         this.chaseTicks = 0;
         this.unreachableTicks = 0;
         this.siegeTicks = 0;
+        this.parriedBites = 0;
+        this.biteCooldown = 0;
         this.animal.getNavigation().stop();
     }
 

@@ -277,6 +277,20 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.takeScreenshot("dftm_herobrine_floating");
             discardEverythingButPlayers(server);
             server.runCommand("fill 0 -60 0 0 -52 0 minecraft:air");
+            //running away from him: he stands in the way, a cobweb in his hand, and puts it down in front of himself
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, -6.5D), player, HerobrineApparitionEntity.Mode.STALK, 20 * 60);
+                stalker.setFogging(player);
+                check(stalker.blinkAhead(minecraftServer.overworld(), player, new Vec3(0.0D, 0.0D, 1.0D), true), "There must be room for him ahead of the player");
+            });
+            context.waitFor(client -> clientStalker(client, stalker -> stalker.getMainHandItem().is(Items.COBWEB)), 20 * 5);
+            context.waitTicks(6);
+            context.takeScreenshot("dftm_herobrine_cobweb");
+            discardEverythingButPlayers(server);
+            server.runCommand("fill -2 -60 4 3 -59 10 minecraft:air replace minecraft:cobweb");
             server.runCommand("tp @a 0.5 -60 0.5 180 0");
             server.runCommand("effect clear @a");
             context.waitFor(client -> HauntedScreen.strength() == 0.0F, 20 * 10);

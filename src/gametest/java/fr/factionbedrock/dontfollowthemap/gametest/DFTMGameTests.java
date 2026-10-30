@@ -96,6 +96,7 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.piston.PistonBaseBlock;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.WallSignBlock;
@@ -127,9 +128,11 @@ public class DFTMGameTests
     /**
      * Tests with players in survival run on their own (data/dontfollowthemap/test_environment): the Herobrine of any other test would fight them.
      * The ones where Herobrine fights survival players each run alone: he would draw the players of the other ones into his fight.
+     * SURVIVAL_STILL: survival players, and no random ticks (lava sets nothing on fire, its light melts no snow).
      */
     private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players", HEROBRINE_FIGHT = "dontfollowthemap:herobrine_fight",
-            HEROBRINE_SHIELD = "dontfollowthemap:herobrine_shield", HEROBRINE_WALLS = "dontfollowthemap:herobrine_walls";
+            HEROBRINE_SHIELD = "dontfollowthemap:herobrine_shield", HEROBRINE_WALLS = "dontfollowthemap:herobrine_walls",
+            SURVIVAL_STILL = "dontfollowthemap:survival_no_random_ticks";
 
     //progression and saving
     @GameTest
@@ -1391,6 +1394,63 @@ public class DFTMGameTests
                 .thenSucceed();
     }
 
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 16)
+    public void floatingStalkerMinesTheCeilingInItsWay(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        BlockPos top = pillar(helper, 4, 4, 8);
+        //a glass ceiling all around the pillar, just above the stalker's head
+        List<BlockPos> ceiling = new ArrayList<>();
+        for (int x = 1; x <= 7; x++) {for (int z = 1; z <= 7; z++) {if (x != 4 || z != 4) {ceiling.add(place(helper, x, 3, z, Blocks.GLASS));}}}
+        ServerPlayer player = survivalPlayer(helper, 4, 9, 4, 180.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, 2.5D);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(top).isAir(), "Up on a high pillar, what the player stands on must be mined"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(ceiling.stream().anyMatch(level::isEmptyBlock), "Floating up, it must mine the ceiling it runs into");
+                    helper.assertTrue(BlockPos.betweenClosedStream(top.below(7), top.below()).allMatch(pos -> level.getBlockState(pos).is(Blocks.COBBLESTONE)), "It must not dig into the player's pillar");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_STILL, maxTicks = 400, skyAccess = true, padding = 16)
+    public void floatingStalkerMinesTheSnowLayerItRunsInto(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        //within the barriers of the test area: a moat of lava from one side to the other (on a floor raised by one block),
+        //the player beyond it, behind a line of thin snow (2 layers: a step a floating stalker can't take)
+        floor(helper, 0, 7, Blocks.STONE);
+        for (int x = 0; x <= 7; x++)
+        {
+            for (int z = 0; z <= 7; z++) {helper.setBlock(x, 1, z, z == 3 ? Blocks.LAVA : Blocks.STONE);}
+            helper.setBlock(x, 2, 4, Blocks.SNOW.defaultBlockState().setValue(SnowLayerBlock.LAYERS, 2));
+        }
+        BlockPos snow = helper.absolutePos(new BlockPos(4, 2, 4));
+        //out of reach across the moat (3 blocks)
+        ServerPlayer player = survivalPlayer(helper, 4, 2, 7, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(level, helper.absoluteVec(new Vec3(4.5D, 2.0D, 0.5D)), player, HerobrineApparitionEntity.Mode.STALK, HerobrineApparitionEntity.STALK_LIFETIME);
+        stalker.setFogging(player);
+        boolean[] floated = {false};
+        helper.onEachTick(() -> floated[0] |= stalker.isNoGravity());
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(snow).isAir(), "Floating over the lava, the stalker must mine the snow it runs into"))
+                .thenWaitUntil(() -> helper.assertTrue(!stalker.isNoGravity() && stalker.getZ() > snow.getZ() + 0.5D, "Past it, it must land and walk on"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(floated[0], "It must float over the lava");
+                    helper.assertTrue(level.getBlockState(snow.west()).is(Blocks.SNOW), "Only the snow in its way must be mined");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
     @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 600, skyAccess = true, padding = 16)
     public void imitatorBuildsUpToMineAHighPillar(GameTestHelper helper)
     {
@@ -1477,30 +1537,110 @@ public class DFTMGameTests
     }
 
     @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 600, skyAccess = true, padding = 12)
-    public void imitatorThatCantGetRoundAShieldTurnsIntoAStalker(GameTestHelper helper)
+    public void imitatorThatKeepsHittingARaisedShieldTurnsIntoAStalker(GameTestHelper helper)
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -4, 11, Blocks.STONE);
         removeBarriers(helper);
         BlockPos table = place(helper, 6, 1, 4, Blocks.CRAFTING_TABLE);
         ServerPlayer player = survivalPlayer(helper, 2, 1, 2, 0.0F);
-        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
         ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(2, 1, 5)), player, List.of(table));
+        boolean[] hurt = {false};
         helper.startSequence()
                 .thenWaitUntil(() -> helper.assertTrue(imitator.isArmed(), "With a player close, it must make itself a sword"))
                 .thenExecute(() ->
                 {
                     raiseShield(player);
                     //whom the player keeps facing
-                    helper.onEachTick(() -> {if (!imitator.isRemoved()) {turnTowards(player, imitator);}});
+                    helper.onEachTick(() ->
+                    {
+                        if (imitator.isRemoved()) {return;}
+                        turnTowards(player, imitator);
+                        hurt[0] |= player.getHealth() < player.getMaxHealth();
+                    });
                 })
-                .thenWaitUntil(() -> helper.assertTrue(imitator.isRemoved() && !stalkersAfter(helper, player).isEmpty(), "Unable to get round the shield, it must drop its disguise: a stalker comes instead"))
+                .thenWaitUntil(() -> helper.assertTrue(imitator.isRemoved() && !stalkersAfter(helper, player).isEmpty(), "After " + ImitatorEntity.PARRIED_BLOWS + " blows into the shield, it must drop its disguise: a stalker comes instead"))
                 .thenExecute(() ->
                 {
+                    helper.assertTrue(!hurt[0] && player.getOffhandItem().getDamageValue() > 0, "Its blows must go into the shield, not round it");
                     stalkersAfter(helper, player).forEach(Entity::discard);
                     removePlayer(player);
                 })
                 .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 12)
+    public void possessedAnimalThatKeepsBitingARaisedShieldTurnsIntoAStalker(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.GRASS_BLOCK);
+        removeBarriers(helper);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 180.0F);
+        raiseShield(player);
+        Animal sheep = PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(4, 1, 2)), player);
+        sheep.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+        boolean[] bitten = {false};
+        helper.onEachTick(() ->
+        {
+            if (sheep.isRemoved()) {return;}
+            turnTowards(player, sheep);
+            bitten[0] |= player.getHealth() < player.getMaxHealth();
+        });
+        helper.succeedWhen(() ->
+        {
+            List<HerobrineApparitionEntity> stalkers = stalkersAfter(helper, player);
+            helper.assertTrue(sheep.isRemoved() && !stalkers.isEmpty(), "After " + Possession.PARRIED_BITES + " bites into the shield, Herobrine's stalker must come instead of it");
+            helper.assertTrue(!bitten[0] && player.getOffhandItem().getDamageValue() > 0, "A raised shield must stop its bites");
+            stalkers.forEach(Entity::discard);
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 200, skyAccess = true, padding = 24)
+    public void stalkerAppearsInTheWayOfAPlayerRunningAway(GameTestHelper helper)
+    {
+        floor(helper, -4, 27, Blocks.STONE);
+        removeBarriers(helper);
+        //running south at a sprint (5.6 blocks per second, faster than it creeps), the stalker far behind them
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 0.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, -3.5D);
+        Vec3 start = player.position();
+        int[] ran = {0};
+        boolean[] ahead = {false};
+        helper.onEachTick(() ->
+        {
+            if (ran[0] < 60) {player.snapTo(start.x, start.y, start.z + ++ran[0] * 0.28D, 0.0F, 0.0F);}
+            ahead[0] |= stalker.getZ() > player.getZ() + 2.0D;
+        });
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(ahead[0], "Running away from it, the player must find it in their way");
+            stalker.discard();
+            removeCobwebs(helper);
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 100, skyAccess = true, padding = 16)
+    public void stalkerAheadOfAPlayerRunningAwayPutsACobwebInTheirWay(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 15, Blocks.STONE);
+        removeBarriers(helper);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 1, 0.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, -6.5D);
+        helper.assertTrue(stalker.blinkAhead(level, player, new Vec3(0.0D, 0.0D, 1.0D), true), "There must be room for it ahead of the player");
+        helper.assertTrue(stalker.getZ() > player.getZ() + 4.0D && stalker.getMainHandItem().is(Items.COBWEB), "It must stand ahead of the player, a cobweb in its hand");
+        BlockPos web = stalker.blockPosition().north();
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(level.getBlockState(web).is(Blocks.COBWEB), "It must put the cobweb down in front of itself, on the player's way");
+            helper.assertTrue(stalker.getMainHandItem().isEmpty(), "Then its hand must be empty again");
+            stalker.discard();
+            removeCobwebs(helper);
+            removePlayer(player);
+        });
     }
 
     @GameTest(environment = HEROBRINE_SHIELD, maxTicks = 400, skyAccess = true, padding = 8)
@@ -1596,6 +1736,17 @@ public class DFTMGameTests
         shield.set(DataComponents.BLOCKS_ATTACKS, new BlocksAttacks(0.0F, blocks.disableCooldownScale(), blocks.damageReductions(), blocks.itemDamage(), blocks.bypassedBy(), blocks.blockSound(), blocks.disableSound()));
         player.setItemInHand(InteractionHand.OFF_HAND, shield);
         player.startUsingItem(InteractionHand.OFF_HAND);
+    }
+
+    /** The cobwebs a stalker put down on and around the floor of the test (the test area is cleared afterwards, not what lies around it). */
+    private static void removeCobwebs(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        AABB around = helper.getBounds().inflate(24.0D);
+        for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(around.minX, around.minY, around.minZ), BlockPos.containing(around.maxX, around.minY + 4.0D, around.maxZ)))
+        {
+            if (level.getBlockState(pos).is(Blocks.COBWEB)) {level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);}
+        }
     }
 
     private static void turnTowards(ServerPlayer player, Entity entity)
