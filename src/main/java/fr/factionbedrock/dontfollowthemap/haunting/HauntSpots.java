@@ -130,6 +130,12 @@ public class HauntSpots
      */
     @Nullable public static Vec3 findSightingSpot(ServerPlayer player, double minDistance, double maxDistance, double minAngle, double maxAngle)
     {
+        return findSightingSpot(player, minDistance, maxDistance, minAngle, maxAngle, 0.0D);
+    }
+
+    /** The same, at least othersDistance away from every other player: one of them would come across the figure first. */
+    @Nullable public static Vec3 findSightingSpot(ServerPlayer player, double minDistance, double maxDistance, double minAngle, double maxAngle, double othersDistance)
+    {
         ServerLevel level = player.level();
         RandomSource random = player.getRandom();
         boolean outside = level.canSeeSky(player.blockPosition().above());
@@ -143,9 +149,16 @@ public class HauntSpots
             BlockPos ground = findGround(level, x, z, player.getBlockY(), outside);
             if (ground == null) {continue;}
             Vec3 feet = Vec3.atBottomCenterOf(ground);
+            if (othersDistance > 0.0D && isNearOtherPlayer(player, feet, othersDistance)) {continue;}
             if (canSee(level, feet.add(0.0D, 1.6D, 0.0D), player.getEyePosition())) {return feet;}
         }
         return null;
+    }
+
+    /** Whether a player other than this one (spectators aside) is within distance of the point. */
+    public static boolean isNearOtherPlayer(ServerPlayer player, Vec3 point, double distance)
+    {
+        return !player.level().getPlayers(other -> other != player && !other.isSpectator() && other.distanceToSqr(point) < distance * distance, 1).isEmpty();
     }
 
     /** A spot from which the player can't be seen being approached: out of view and on the ground. */

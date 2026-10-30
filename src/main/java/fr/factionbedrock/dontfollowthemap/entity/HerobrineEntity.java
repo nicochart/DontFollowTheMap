@@ -43,13 +43,14 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * The real one, freed from the seal. Three phases, by remaining health:
- * 1. he hunts the player, blinks behind them and calls lightning on marked spots;
- * 2. he also sends his shades (apparitions that rush at the player);
- * 3. lights out: darkness, faster blinks, more lightning.
+ * 1. he hunts the players, blinks behind them (behind another one each time, when they are several) and calls lightning on marked spots;
+ * 2. he also sends his shades (apparitions that rush at the players);
+ * 3. lights out: darkness for everyone, faster blinks, more lightning.
  * He leaves (and can be called back from the open seal) if nobody fights him; he dies in a slow, silent ascension.
  */
 public class HerobrineEntity extends Monster
@@ -105,7 +106,13 @@ public class HerobrineEntity extends Monster
         this.tickStrikes(level);
 
         LivingEntity target = this.getTarget();
-        if (target == null || !target.isAlive() || (this.sealPos != null && target.distanceToSqr(Vec3.atCenterOf(this.sealPos)) > Mth.square(SealEvents.ARENA_RADIUS + 16.0D)))
+        if (!this.isInArena(target))
+        {
+            //his target got away (or died): he turns to the closest one still in the fight
+            target = this.getPlayersInArena(level).stream().min(Comparator.comparingDouble(player -> this.distanceToSqr(player))).orElse(null);
+            if (target != null) {this.setTarget(target);}
+        }
+        if (target == null)
         {
             //nobody to fight: after a while, he goes back where he came from
             if (++this.idleTicks > 20 * 20) {this.leave(level);}
@@ -120,11 +127,17 @@ public class HerobrineEntity extends Monster
         double distance = this.distanceTo(target);
         if (this.blinkCooldown <= 0 && (distance > 10.0D || this.random.nextInt(this.phase == 3 ? 30 : 60) == 0))
         {
-            if (this.blinkBehind(level, target)) {this.blinkCooldown = (this.phase == 3 ? 50 : 90) + this.random.nextInt(60);}
+            //with several players in the fight, each blink takes him to another one
+            LivingEntity next = this.pickNextTarget(level, target);
+            if (this.blinkBehind(level, next))
+            {
+                if (next != target) {this.setTarget(next);}
+                this.blinkCooldown = (this.phase == 3 ? 50 : 90) + this.random.nextInt(60);
+            }
         }
         if (this.strikeCooldown <= 0 && this.strikeTimer < 0)
         {
-            this.prepareStrikes(target, this.phase == 3 ? 5 : 3);
+            this.prepareStrikes(level, target, this.phase == 3 ? 5 : 3);
             this.strikeCooldown = (this.phase == 3 ? 110 : 160) + this.random.nextInt(80);
         }
         if (this.phase >= 2 && this.shadeCooldown <= 0 && target instanceof ServerPlayer player)
@@ -134,9 +147,27 @@ public class HerobrineEntity extends Monster
         }
         if (this.phase == 3 && this.darknessCooldown <= 0)
         {
-            for (ServerPlayer player : this.getPlayersInArena(level)) {player.addEffect(new MobEffectInstance(MobEffects.DARKNESS, 20 * 7), this);}
+            this.darkenArena(level, 20 * 7);
             this.darknessCooldown = 20 * 15;
         }
+    }
+
+    private boolean isInArena(@Nullable LivingEntity target)
+    {
+        return target != null && target.isAlive() && (this.sealPos == null || target.distanceToSqr(Vec3.atCenterOf(this.sealPos)) <= Mth.square(SealEvents.ARENA_RADIUS + 16.0D));
+    }
+
+    /** Another player of the fight, at random, if there is one: he doesn't stick to the same victim. */
+    private LivingEntity pickNextTarget(ServerLevel level, LivingEntity current)
+    {
+        List<ServerPlayer> others = this.getPlayersInArena(level).stream().filter(player -> player != current).toList();
+        return others.isEmpty() ? current : others.get(this.random.nextInt(others.size()));
+    }
+
+    /** Lights out for everyone in the fight, not only for the one he is after. */
+    private void darkenArena(ServerLevel level, int ticks)
+    {
+        for (ServerPlayer player : this.getPlayersInArena(level)) {player.addEffect(new MobEffectInstance(MobEffects.DARKNESS, ticks), this);}
     }
 
     private void updatePhase(ServerLevel level)
@@ -182,12 +213,16 @@ public class HerobrineEntity extends Monster
     }
 
     //lightning
-    private void prepareStrikes(LivingEntity target, int count)
+    private void prepareStrikes(ServerLevel level, LivingEntity target, int count)
     {
         this.pendingStrikes.clear();
-        //the first one exactly where the player stands: they must move
+        //the first ones exactly where the players of the fight stand, his target first: they must move
         this.pendingStrikes.add(target.position());
-        for (int i = 1; i < count; i++) {this.pendingStrikes.add(target.position().add(Mth.nextDouble(this.random, -4.0D, 4.0D), 0.0D, Mth.nextDouble(this.random, -4.0D, 4.0D)));}
+        for (ServerPlayer player : this.getPlayersInArena(level))
+        {
+            if (player != target && this.pendingStrikes.size() < count) {this.pendingStrikes.add(player.position());}
+        }
+        while (this.pendingStrikes.size() < count) {this.pendingStrikes.add(target.position().add(Mth.nextDouble(this.random, -4.0D, 4.0D), 0.0D, Mth.nextDouble(this.random, -4.0D, 4.0D)));}
         this.strikeTimer = STRIKE_WARNING_TICKS;
         this.level().playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.HEROBRINE_CALL, SoundSource.HOSTILE, 1.5F, 1.3F);
     }
@@ -219,18 +254,22 @@ public class HerobrineEntity extends Monster
     //shades
     private void summonShades(ServerLevel level, ServerPlayer player, int count)
     {
+        List<ServerPlayer> players = this.getPlayersInArena(level);
         for (int i = 0; i < count; i++)
         {
-            Vec3 spot = HauntSpots.findSightingSpot(player, 7.0D, 11.0D, 0.0D, 180.0D);
-            if (spot != null) {HerobrineApparitionEntity.spawn(level, spot, player, HerobrineApparitionEntity.Mode.SHADE, 20 * 12);}
+            //each one goes for someone of the fight
+            ServerPlayer victim = players.isEmpty() ? player : players.get(this.random.nextInt(players.size()));
+            Vec3 spot = HauntSpots.findSightingSpot(victim, 7.0D, 11.0D, 0.0D, 180.0D);
+            if (spot != null) {HerobrineApparitionEntity.spawn(level, spot, victim, HerobrineApparitionEntity.Mode.SHADE, 20 * 12);}
         }
         level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.HEROBRINE_CALL, SoundSource.HOSTILE, 2.0F, 0.8F);
     }
 
+    /** The players of the fight: alive, in survival or adventure, around the seal (or around him when he has none). */
     private List<ServerPlayer> getPlayersInArena(ServerLevel level)
     {
         Vec3 center = this.sealPos != null ? Vec3.atCenterOf(this.sealPos) : this.position();
-        return level.getPlayers(player -> !player.isSpectator() && !player.isCreative() && player.distanceToSqr(center) < Mth.square(SealEvents.ARENA_RADIUS + 16.0D));
+        return level.getPlayers(player -> player.isAlive() && !player.isSpectator() && !player.isCreative() && player.distanceToSqr(center) < Mth.square(SealEvents.ARENA_RADIUS + 16.0D));
     }
 
     /** He fled: the seal stays open, he can be called back. */
@@ -246,8 +285,12 @@ public class HerobrineEntity extends Monster
     {
         if (source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {return super.hurtServer(level, source, damage);}
         if (this.defeated || source.is(DamageTypeTags.IS_FALL) || source.is(DamageTypeTags.IS_DROWNING) || source.is(DamageTypeTags.IS_LIGHTNING)) {return false;}
-        //arrows often find nothing but smoke
-        if (source.is(DamageTypeTags.IS_PROJECTILE) && this.random.nextFloat() < 0.4F && source.getEntity() instanceof LivingEntity shooter && this.blinkBehind(level, shooter)) {return false;}
+        //arrows often find nothing but smoke, and he shows up behind the archer
+        if (source.is(DamageTypeTags.IS_PROJECTILE) && this.random.nextFloat() < 0.4F && source.getEntity() instanceof LivingEntity shooter && this.blinkBehind(level, shooter))
+        {
+            if (shooter instanceof Player && this.canAttack(shooter)) {this.setTarget(shooter);}
+            return false;
+        }
         boolean hurt = super.hurtServer(level, source, damage);
         if (hurt && this.random.nextInt(4) == 0) {this.blinkCooldown = Math.min(this.blinkCooldown, 10);}
         return hurt;
@@ -256,7 +299,8 @@ public class HerobrineEntity extends Monster
     @Override public boolean doHurtTarget(ServerLevel level, Entity target)
     {
         boolean hit = super.doHurtTarget(level, target);
-        if (hit && target instanceof LivingEntity living && this.random.nextInt(3) == 0) {living.addEffect(new MobEffectInstance(MobEffects.DARKNESS, 60), this);}
+        //one blow in three puts the lights out for a moment, for everyone in the fight
+        if (hit && this.random.nextInt(3) == 0) {this.darkenArena(level, 60);}
         return hit;
     }
 

@@ -1,5 +1,6 @@
 package fr.factionbedrock.dontfollowthemap.haunting;
 
+import fr.factionbedrock.dontfollowthemap.util.SignWoods;
 import fr.factionbedrock.dontfollowthemap.util.SignWriter;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -45,7 +46,7 @@ public class GraveDigger
                 level.setBlock(column.below(2), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
             }
             level.setBlock(headstone, Blocks.MOSSY_STONE_BRICKS.defaultBlockState(), Block.UPDATE_ALL);
-            level.setBlock(sign, Blocks.SPRUCE_WALL_SIGN.defaultBlockState().setValue(WallSignBlock.FACING, direction), Block.UPDATE_ALL);
+            level.setBlock(sign, SignWoods.localSign(level, sign, random, true).defaultBlockState().setValue(WallSignBlock.FACING, direction), Block.UPDATE_ALL);
             if (level.getBlockEntity(sign) instanceof SignBlockEntity signEntity)
             {
                 SignWriter.write(signEntity, level.registryAccess(), SignWriter.centered(List.of(Component.translatable("sign.dontfollowthemap.grave"), Component.literal(player.getPlainTextName()))), false);

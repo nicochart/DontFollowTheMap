@@ -36,6 +36,7 @@ import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import fr.factionbedrock.dontfollowthemap.util.SignWoods;
 import fr.factionbedrock.dontfollowthemap.util.SignWriter;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,14 +47,17 @@ import java.util.List;
 /** Every haunting event. Each one returns false when it could not happen right now (no room, nothing to haunt...). */
 public class HauntEvents
 {
+    /** How far the other players must be from a watching apparition when it shows up: any of them who comes close makes it vanish. */
+    private static final double APART_FROM_OTHERS = HerobrineApparitionEntity.VANISH_DISTANCE + 6.0D;
+
     //sightings
     public static boolean sighting(ServerPlayer player, int stage, boolean leavesMap)
     {
         if (hasActiveApparition(player)) {return false;}
         double minDistance = stage >= HauntingData.HUNTED ? 22.0D : stage == HauntingData.HAUNTED ? 26.0D : 30.0D;
         //in the corner of the eye first, anywhere around if there is no room there
-        Vec3 spot = HauntSpots.findSightingSpot(player, minDistance, minDistance + 14.0D, 20.0D, 75.0D);
-        if (spot == null) {spot = HauntSpots.findSightingSpot(player, minDistance, minDistance + 14.0D, 0.0D, 180.0D);}
+        Vec3 spot = HauntSpots.findSightingSpot(player, minDistance, minDistance + 14.0D, 20.0D, 75.0D, APART_FROM_OTHERS);
+        if (spot == null) {spot = HauntSpots.findSightingSpot(player, minDistance, minDistance + 14.0D, 0.0D, 180.0D, APART_FROM_OTHERS);}
         if (spot == null) {return false;}
         HerobrineApparitionEntity apparition = HerobrineApparitionEntity.spawn(player.level(), spot, player, HerobrineApparitionEntity.Mode.WATCH, 20 * 90);
         apparition.setLeavesMap(leavesMap);
@@ -65,7 +69,7 @@ public class HauntEvents
     public static boolean stalk(ServerPlayer player)
     {
         if (hasActiveApparition(player)) {return false;}
-        Vec3 spot = HauntSpots.findSightingSpot(player, 13.0D, 18.0D, 140.0D, 180.0D);
+        Vec3 spot = HauntSpots.findSightingSpot(player, 13.0D, 18.0D, 140.0D, 180.0D, APART_FROM_OTHERS);
         if (spot == null) {return false;}
         HerobrineApparitionEntity.spawn(player.level(), spot, player, HerobrineApparitionEntity.Mode.WATCH, 20 * 40).setStalking(player);
         HauntingData.get(player).sightings++;
@@ -181,7 +185,7 @@ public class HauntEvents
             //the text faces the bed
             double dx = pos.getX() - home.getX(), dz = pos.getZ() - home.getZ();
             float yawFromHome = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
-            level.setBlock(pos, Blocks.DARK_OAK_SIGN.defaultBlockState().setValue(StandingSignBlock.ROTATION, RotationSegment.convertToSegment(yawFromHome + 180.0F)), Block.UPDATE_ALL);
+            level.setBlock(pos, SignWoods.localSign(level, pos, random, false).defaultBlockState().setValue(StandingSignBlock.ROTATION, RotationSegment.convertToSegment(yawFromHome + 180.0F)), Block.UPDATE_ALL);
             if (level.getBlockEntity(pos) instanceof SignBlockEntity sign) {SignWriter.write(sign, level.registryAccess(), SignWriter.centered(pickMessage(player, random)), false);}
             return true;
         }
@@ -389,7 +393,7 @@ public class HauntEvents
 
     private static BlockState getWallState(BlockPos wall)
     {
-        return (wall.getY() < 0 ? Blocks.CHISELED_DEEPSLATE : Blocks.COBBLESTONE).defaultBlockState();
+        return (wall.getY() < 0 ? Blocks.COBBLED_DEEPSLATE : Blocks.COBBLESTONE).defaultBlockState();
     }
 
     /** Puts a block back, loudly: heard from twice as far as a block put down by a player. */

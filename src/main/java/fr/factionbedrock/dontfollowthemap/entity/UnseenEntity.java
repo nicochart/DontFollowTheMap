@@ -7,6 +7,9 @@ import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -39,7 +42,8 @@ import java.util.UUID;
 /**
  * Something invisible that follows the player for a while, taking what falls around them (what they mine, drop or kill)
  * before they can pick it up. Only its footsteps and a little dust give it away, and nothing can touch it until it has what
- * it came for: 3 to 5 stacks. Then it runs away, raising more dust; hitting it makes it drop everything it took.
+ * it came for (3 to 5 stacks): blows and arrows go right through it, it never gets in the way of mining or building.
+ * Then it runs away, raising more dust; hitting it makes it drop everything it took.
  * Whatever it keeps is given back when Herobrine is defeated.
  */
 public class UnseenEntity extends PathfinderMob
@@ -55,6 +59,8 @@ public class UnseenEntity extends PathfinderMob
     /** How long it tries to get to an item before giving up on it. */
     private static final int GIVE_UP_TICKS = HEAD_START + 20;
     private static final double FOLLOW_DISTANCE = 4.0D;
+    /** Whether it runs away with what it took (known on both sides: only then can the player's crosshair find it). */
+    private static final EntityDataAccessor<Boolean> DATA_FLEEING = SynchedEntityData.defineId(UnseenEntity.class, EntityDataSerializers.BOOLEAN);
 
     @Nullable private UUID victimId;
     private final List<ItemEntity> targets = new ArrayList<>();
@@ -64,7 +70,7 @@ public class UnseenEntity extends PathfinderMob
     private int chasingTicks;
     private final List<ItemStack> carried = new ArrayList<>();
     private int wanted = MIN_LOOT;
-    private int fleeingTicks = -1;
+    private int fleeingTicks;
     private boolean gone;
 
     public UnseenEntity(EntityType<? extends UnseenEntity> type, Level level)
@@ -72,6 +78,14 @@ public class UnseenEntity extends PathfinderMob
         super(type, level);
         this.setInvisible(true);
         this.xpReward = 0;
+        //a block that can't be placed for no reason would give it away
+        this.blocksBuilding = false;
+    }
+
+    @Override protected void defineSynchedData(SynchedEntityData.Builder builder)
+    {
+        super.defineSynchedData(builder);
+        builder.define(DATA_FLEEING, false);
     }
 
     public static AttributeSupplier.Builder createAttributes()
@@ -105,7 +119,7 @@ public class UnseenEntity extends PathfinderMob
 
     public boolean isAfter(Player player) {return player.getUUID().equals(this.victimId);}
     /** Running away with what it took: from then on, it can be caught. */
-    public boolean isFleeing() {return this.fleeingTicks >= 0;}
+    public boolean isFleeing() {return this.entityData.get(DATA_FLEEING);}
     /** How many stacks it takes before running away (3 to 5, picked at random when it appears). */
     public void setWanted(int wanted) {this.wanted = wanted;}
 
@@ -223,7 +237,7 @@ public class UnseenEntity extends PathfinderMob
             this.leave(level, false);
             return;
         }
-        this.fleeingTicks = 0;
+        this.entityData.set(DATA_FLEEING, true);
         this.targets.clear();
         this.getNavigation().stop();
     }
@@ -270,6 +284,8 @@ public class UnseenEntity extends PathfinderMob
     //it doesn't bump into anyone: that would give it away
     @Override public boolean isPushable() {return false;}
     @Override protected void doPush(Entity entity) {}
+    //until it runs away, the player's blows and arrows go right through it: it doesn't keep them from mining
+    @Override public boolean isPickable() {return this.isFleeing() && super.isPickable();}
 
     @Override public boolean isInvisible() {return true;}
     @Override public boolean removeWhenFarAway(double distSqr) {return false;}

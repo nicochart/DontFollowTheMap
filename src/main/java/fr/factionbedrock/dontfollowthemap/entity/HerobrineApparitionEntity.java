@@ -40,13 +40,13 @@ import java.util.UUID;
 
 /**
  * A Herobrine that is not really there. It never attacks (except the shades summoned during the fight):
- * it stares at one player and vanishes before they can reach it. Whoever is close to it or looks at it hears his ambience (client/HerobrineSounds).
+ * it stares at one player and vanishes before anybody can reach it. Whoever is close to it or looks at it hears his ambience (client/HerobrineSounds).
  */
 public class HerobrineApparitionEntity extends PathfinderMob
 {
     public enum Mode
     {
-        /** Seen from afar: vanishes when approached, or when stared at for too long. */
+        /** Seen from afar: vanishes when approached, or when stared at for too long, by anybody. */
         WATCH,
         /** A brief flash (kill apparition, bed scare). */
         FLASH,
@@ -169,23 +169,31 @@ public class HerobrineApparitionEntity extends PathfinderMob
         }
 
         this.faceTowards(target);
-        double distance = this.distanceTo(target);
-        if (this.mode == Mode.WATCH)
-        {
-            if (distance < VANISH_DISTANCE) {this.vanish(level, true); return;}
-            if (this.tickCount % 4 == 0) {this.stareTicks = this.isStaredAtBy(target) ? this.stareTicks + 4 : Math.max(0, this.stareTicks - 2);}
-            if (this.stareTicks >= STARE_TICKS_TO_VANISH) {this.vanish(level, true);}
-        }
+        if (this.mode == Mode.WATCH) {this.watch(level);}
         else if (this.mode == Mode.SHADE)
         {
             if (this.tickCount % 10 == 0) {this.getNavigation().moveTo(target, 1.4D);}
-            if (distance < 1.4D)
+            if (this.distanceTo(target) < 1.4D)
             {
                 target.hurtServer(level, this.damageSources().mobAttack(this), 4.0F);
                 target.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, 50), this);
                 this.vanish(level, true);
             }
         }
+    }
+
+    /** It stares at its player, but anybody who comes close to it or stares back long enough makes it vanish (and saw it), not only that one. */
+    private void watch(ServerLevel level)
+    {
+        ServerPlayer starer = null;
+        for (ServerPlayer player : level.getPlayers(player -> player.isAlive() && !player.isSpectator() && this.distanceToSqr(player) < 96.0D * 96.0D))
+        {
+            if (this.distanceToSqr(player) < VANISH_DISTANCE * VANISH_DISTANCE) {this.vanish(level, true, player); return;}
+            if (starer == null && this.tickCount % 4 == 0 && this.isStaredAtBy(player)) {starer = player;}
+        }
+        if (this.tickCount % 4 != 0) {return;}
+        this.stareTicks = starer != null ? this.stareTicks + 4 : Math.max(0, this.stareTicks - 2);
+        if (starer != null && this.stareTicks >= STARE_TICKS_TO_VANISH) {this.vanish(level, true, starer);}
     }
 
     private void waitBehindWall(ServerLevel level, ServerPlayer target)
@@ -243,7 +251,10 @@ public class HerobrineApparitionEntity extends PathfinderMob
         this.setXRot(pitch);
     }
 
-    public void vanish(ServerLevel level, boolean withSmoke)
+    public void vanish(ServerLevel level, boolean withSmoke) {this.vanish(level, withSmoke, null);}
+
+    /** witness: the player who made it vanish by coming close, staring at it or hitting it (they saw it), null when it just left. */
+    public void vanish(ServerLevel level, boolean withSmoke, @Nullable ServerPlayer witness)
     {
         if (this.vanished) {return;}
         this.vanished = true;
@@ -256,15 +267,14 @@ public class HerobrineApparitionEntity extends PathfinderMob
         boolean targetAround = target != null && target.level() == level && this.distanceToSqr(target) < 64.0D * 64.0D;
         if (this.leavesMap && targetAround) {SealEvents.leaveMap(level, this.position(), target);}
         if (this.mode == Mode.LURK && !this.revealed) {this.leaveTorch(level);}
-        //vanishing in a puff of smoke means the player came close or stared at it: they saw it
-        if (this.mode == Mode.WATCH && withSmoke && targetAround) {DFTMAdvancements.award(target, "watched");}
+        if (this.mode == Mode.WATCH && witness != null) {DFTMAdvancements.award(witness, "watched");}
         this.discard();
     }
 
     @Override public boolean hurtServer(ServerLevel level, DamageSource source, float damage)
     {
         if (source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {return super.hurtServer(level, source, damage);}
-        if (this.mode == Mode.SHADE || source.getEntity() instanceof Player) {this.vanish(level, true);}
+        if (this.mode == Mode.SHADE || source.getEntity() instanceof Player) {this.vanish(level, true, source.getEntity() instanceof ServerPlayer player ? player : null);}
         return false;
     }
 

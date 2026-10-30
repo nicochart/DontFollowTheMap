@@ -2,7 +2,9 @@ package fr.factionbedrock.dontfollowthemap.gametest;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.ParseResults;
+import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.block.SealBlock;
 import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
@@ -25,28 +27,37 @@ import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMBlocks;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
+import fr.factionbedrock.dontfollowthemap.util.SignWoods;
 import fr.factionbedrock.dontfollowthemap.world.SealPiece;
 import fr.factionbedrock.dontfollowthemap.world.SealShrines;
+import io.netty.channel.embedded.EmbeddedChannel;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.gametest.framework.GameTestSequence;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.game.ServerboundPlayerLoadedPacket;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -63,16 +74,22 @@ import net.minecraft.world.entity.animal.golem.IronGolem;
 import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.entity.animal.pig.PigVariants;
 import net.minecraft.world.entity.animal.sheep.Sheep;
+import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.piston.PistonBaseBlock;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.WallSignBlock;
 import net.minecraft.world.level.block.WallTorchBlock;
@@ -80,19 +97,28 @@ import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignTextSlot;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /** Server game tests: ./gradlew runGameTest */
 public class DFTMGameTests
 {
+    /** Tests with players in survival run on their own (data/dontfollowthemap/test_environment): the Herobrine of any other test would fight them. */
+    private static final String SURVIVAL_PLAYERS = "dontfollowthemap:survival_players";
+
     //progression and saving
     @GameTest
     public void hauntingDataProgressesAndSurvivesSaving(GameTestHelper helper)
@@ -135,6 +161,43 @@ public class DFTMGameTests
             helper.assertTrue(apparition.isRemoved(), "The apparition must vanish when the player comes close");
             removePlayer(player);
             helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 80, skyAccess = true, padding = 14)
+    public void apparitionVanishesWhenAnybodyComesClose(GameTestHelper helper)
+    {
+        floor(helper, -2, 9, Blocks.STONE);
+        //it watches one player, another one (who doesn't look at it) walks up to it
+        ServerPlayer watched = player(helper, 4, 1, -12, 180.0F), other = player(helper, 4, 1, 20, 0.0F);
+        HerobrineApparitionEntity apparition = HerobrineApparitionEntity.spawn(helper.getLevel(), helper.absoluteVec(new Vec3(4.5D, 1.0D, 4.5D)), watched, HerobrineApparitionEntity.Mode.WATCH, 20 * 90);
+        helper.runAfterDelay(20, () ->
+        {
+            helper.assertTrue(apparition.isAlive(), "The apparition must stay while everybody is far and doesn't look");
+            teleport(helper, other, 4, 1, 10, 0.0F);
+        });
+        helper.runAfterDelay(30, () ->
+        {
+            helper.assertTrue(apparition.isRemoved(), "The apparition must vanish when anybody comes close, not only the one it watches");
+            helper.assertTrue(hasAdvancement(other, "watched") && !hasAdvancement(watched, "watched"), "The one who came close saw it, not the one it watched");
+            List.of(watched, other).forEach(DFTMGameTests::removePlayer);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 140, skyAccess = true, padding = 14)
+    public void apparitionVanishesWhenAnybodyStaresAtIt(GameTestHelper helper)
+    {
+        floor(helper, -2, 9, Blocks.STONE);
+        removeBarriers(helper);
+        //it watches one player, another one stares at it from afar
+        ServerPlayer watched = player(helper, 4, 1, -12, 180.0F), other = player(helper, 4, 1, 24, 180.0F);
+        HerobrineApparitionEntity apparition = HerobrineApparitionEntity.spawn(helper.getLevel(), helper.absoluteVec(new Vec3(4.5D, 1.0D, 4.5D)), watched, HerobrineApparitionEntity.Mode.WATCH, 20 * 90);
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(apparition.isRemoved(), "The apparition must vanish when anybody stares at it long enough");
+            helper.assertTrue(hasAdvancement(other, "watched") && !hasAdvancement(watched, "watched"), "The one who stared at it saw it, not the one it watched");
+            List.of(watched, other).forEach(DFTMGameTests::removePlayer);
         });
     }
 
@@ -302,6 +365,24 @@ public class DFTMGameTests
         helper.succeed();
     }
 
+    @GameTest(maxTicks = 20)
+    public void signsAreMadeOfTheLocalWood(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        Registry<Biome> biomes = level.registryAccess().lookupOrThrow(Registries.BIOME);
+        RandomSource random = RandomSource.create(1L);
+        Map<ResourceKey<Biome>, SignWoods.Wood> woods = Map.ofEntries(Map.entry(Biomes.TAIGA, SignWoods.SPRUCE), Map.entry(Biomes.SNOWY_PLAINS, SignWoods.SPRUCE),
+                Map.entry(Biomes.CHERRY_GROVE, SignWoods.CHERRY), Map.entry(Biomes.SAVANNA, SignWoods.ACACIA), Map.entry(Biomes.JUNGLE, SignWoods.JUNGLE),
+                Map.entry(Biomes.DARK_FOREST, SignWoods.DARK_OAK), Map.entry(Biomes.PALE_GARDEN, SignWoods.PALE_OAK), Map.entry(Biomes.MANGROVE_SWAMP, SignWoods.MANGROVE),
+                Map.entry(Biomes.DAPPLED_FOREST, SignWoods.POPLAR), Map.entry(Biomes.BIRCH_FOREST, SignWoods.BIRCH), Map.entry(Biomes.DESERT, SignWoods.OAK));
+        woods.forEach((biome, wood) -> helper.assertTrue(SignWoods.localWood(biomes.getOrThrow(biome), random) == wood, "The signs of " + biome.identifier() + " must be made of the wood that grows there"));
+        //once in a while, a wood from elsewhere
+        Set<Block> signs = new HashSet<>();
+        for (int i = 0; i < 100; i++) {signs.add(SignWoods.localSign(level, helper.absolutePos(BlockPos.ZERO), random, false));}
+        helper.assertTrue(signs.size() > 3, "The signs must not all be made of the same wood");
+        helper.succeed();
+    }
+
     //possessed animals
     @GameTest(maxTicks = 800, skyAccess = true, padding = 16)
     public void possessedSheepStaresBitesAndLetsGo(GameTestHelper helper)
@@ -465,6 +546,8 @@ public class DFTMGameTests
                 .thenExecute(() ->
                 {
                     helper.assertFalse(unseen.hurtServer(level, level.damageSources().playerAttack(player), 1.0F), "Nothing can touch it before it has what it came for");
+                    helper.assertFalse(unseen.isPickable() || unseen.canBeHitByProjectile(), "Before it runs away, blows and arrows must go right through it (it must not keep the player from mining)");
+                    helper.assertTrue(level.isUnobstructed(null, Shapes.create(unseen.getBoundingBox())), "It must never keep a block from being placed");
                     helper.assertTrue(unseen.isAlive() && !unseen.isFleeing(), "With one stack out of three, it must keep following the player");
                     //what falls next around the player
                     helper.spawnItem(Items.EMERALD, new BlockPos(6, 1, 2));
@@ -473,6 +556,7 @@ public class DFTMGameTests
                 .thenWaitUntil(() -> helper.assertTrue(unseen.isFleeing(), "With three stacks, it must run away"))
                 .thenExecute(() ->
                 {
+                    helper.assertTrue(unseen.isPickable(), "Running away, it can be hit");
                     unseen.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
                     helper.assertTrue(unseen.isRemoved(), "Caught, the thief must vanish");
                     helper.assertTrue(HauntingData.get(player).stolen.isEmpty(), "Caught, it must give back everything it took");
@@ -603,6 +687,102 @@ public class DFTMGameTests
             removePlayer(player);
         });
     }
+
+    @GameTest(maxTicks = 60, skyAccess = true, padding = 20)
+    public void imitatorWalksAndSprintsLikeAPlayer(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -1, 19, Blocks.STONE);
+        removeBarriers(helper);
+        ServerPlayer player = player(helper, 4, 1, -6, 0.0F);
+        //a workstation close by: it walks there; a far one: it sprints
+        BlockPos near = helper.absolutePos(new BlockPos(1, 1, 10)), far = helper.absolutePos(new BlockPos(8, 1, 18));
+        level.setBlock(near, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(far, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        ImitatorEntity walker = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(1, 1, 1)), player, List.of(near));
+        ImitatorEntity sprinter = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(8, 1, 1)), player, List.of(far));
+        List.of(walker, sprinter).forEach(imitator -> imitator.setPunches(false));
+        Vec3[] from = new Vec3[2];
+        helper.runAfterDelay(10, () ->
+        {
+            from[0] = walker.position();
+            from[1] = sprinter.position();
+        });
+        helper.runAfterDelay(20, () ->
+        {
+            //in half a second, a player walks 2.16 blocks and sprints 2.81
+            double walked = walker.position().subtract(from[0]).horizontalDistance(), sprinted = sprinter.position().subtract(from[1]).horizontalDistance();
+            helper.assertTrue(!walker.isSprinting() && walked > 1.9D && walked < 2.4D, "It must walk at a player's pace, not at " + walked * 2.0D + " blocks per second");
+            helper.assertTrue(sprinter.isSprinting() && sprinted > 2.5D && sprinted < 3.1D, "It must sprint at a player's pace, not at " + sprinted * 2.0D + " blocks per second");
+            List.of(walker, sprinter).forEach(ImitatorEntity::discard);
+            removePlayer(player);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 200, skyAccess = true, padding = 16)
+    public void imitatorOpensTheDoorOnItsWayAndClosesItBehindItself(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        BlockPos door = wallWithADoor(helper, false);
+        ServerPlayer player = player(helper, 4, 1, -6, 0.0F);
+        ImitatorEntity imitator = imitatorBehindTheWall(helper, player);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(isDoorOpen(level, door), "The imitator must open the closed door on its way"))
+                .thenWaitUntil(() -> helper.assertFalse(isDoorOpen(level, door), "Once past it, the imitator must close the door it opened"))
+                .thenExecute(() -> helper.assertTrue(imitator.getZ() > door.getZ() + 2.4D, "It must close the door once through it and a little away, not on itself"))
+                .thenIdle(40)
+                .thenExecute(() ->
+                {
+                    helper.assertFalse(isDoorOpen(level, door), "The door must stay closed");
+                    imitator.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(maxTicks = 200, skyAccess = true, padding = 16)
+    public void imitatorLeavesTheDoorsItFoundOpen(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        BlockPos door = wallWithADoor(helper, true);
+        ServerPlayer player = player(helper, 4, 1, -6, 0.0F);
+        ImitatorEntity imitator = imitatorBehindTheWall(helper, player);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(imitator.getZ() > door.getZ() + 4.0D, "The imitator must go through the open door"))
+                .thenIdle(30)
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(isDoorOpen(level, door), "A door it found open must stay open");
+                    imitator.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    /** A wall across the whole floor at z = 6, with a door at x = 4: the only way to the other side. */
+    private static BlockPos wallWithADoor(GameTestHelper helper, boolean open)
+    {
+        floor(helper, -1, 15, Blocks.STONE);
+        removeBarriers(helper);
+        for (int x = -1; x <= 15; x++) {if (x != 4) {for (int y = 1; y <= 2; y++) {helper.setBlock(x, y, 6, Blocks.STONE_BRICKS);}}}
+        BlockState door = Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.SOUTH).setValue(DoorBlock.OPEN, open);
+        helper.setBlock(4, 1, 6, door.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER));
+        helper.setBlock(4, 2, 6, door.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+        return helper.absolutePos(new BlockPos(4, 1, 6));
+    }
+
+    /** On one side of the wall, going to a crafting table far enough on the other side. */
+    private static ImitatorEntity imitatorBehindTheWall(GameTestHelper helper, ServerPlayer victim)
+    {
+        BlockPos table = helper.absolutePos(new BlockPos(4, 1, 13));
+        helper.getLevel().setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        ImitatorEntity imitator = ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 2)), victim, List.of(table));
+        imitator.setPunches(false);
+        return imitator;
+    }
+
+    private static boolean isDoorOpen(ServerLevel level, BlockPos door) {return level.getBlockState(door).getValue(DoorBlock.OPEN);}
 
     @GameTest(maxTicks = 20)
     public void imitatorPassesForAnotherConnectedPlayer(GameTestHelper helper)
@@ -853,6 +1033,38 @@ public class DFTMGameTests
         });
     }
 
+    @GameTest(maxTicks = 40, skyAccess = true, padding = 10)
+    public void sealWithstandsPistonsExplosionsAndWithers(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, 0, 8, Blocks.STONE);
+        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
+        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState(), Block.UPDATE_ALL);
+        BlockState state = level.getBlockState(seal);
+        helper.assertTrue(state.getDestroySpeed(level, seal) < 0.0F, "The seal must not be breakable by hand");
+        helper.assertFalse(WitherBoss.canDestroy(state), "A wither must not break the seal");
+        helper.assertTrue(state.is(BlockTags.DRAGON_IMMUNE), "The dragon must not break the seal");
+        //a powered piston right against it
+        helper.setBlock(4, 1, 3, Blocks.PISTON.defaultBlockState().setValue(PistonBaseBlock.FACING, Direction.SOUTH));
+        helper.setBlock(4, 1, 2, Blocks.REDSTONE_BLOCK);
+        helper.startSequence()
+                .thenIdle(5)
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getBlockState(seal).is(DFTMBlocks.SEAL), "A piston must not push the seal");
+                    helper.assertFalse(level.getBlockState(seal.north()).getValue(PistonBaseBlock.EXTENDED), "The piston must stay stuck against the seal");
+                    //TNT going off right next to it
+                    level.explode(null, seal.getX() + 1.5D, seal.getY() + 0.5D, seal.getZ() + 0.5D, 4.0F, Level.ExplosionInteraction.TNT);
+                })
+                .thenIdle(2)
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getBlockState(seal).is(DFTMBlocks.SEAL), "An explosion must not break the seal");
+                    level.getEntitiesOfClass(ItemEntity.class, new AABB(seal).inflate(8.0D)).forEach(ItemEntity::discard);
+                })
+                .thenSucceed();
+    }
+
     @GameTest(maxTicks = 300, skyAccess = true, padding = 8)
     public void herobrineFightsThenFadesAway(GameTestHelper helper)
     {
@@ -886,6 +1098,40 @@ public class DFTMGameTests
             golem.discard();
             helper.succeed();
         });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 500, skyAccess = true, padding = 8)
+    public void herobrineFightsEveryoneInTheFight(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.STONE);
+        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
+        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState().setValue(SealBlock.STATE, SealBlock.State.OPEN), Block.UPDATE_ALL);
+        HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(1, 1, 1));
+        herobrine.setSealPos(seal);
+        //his last phase: the lights go out right away
+        herobrine.setHealth(herobrine.getMaxHealth() * 0.2F);
+        //two players in the fight (they can't be hurt: their client never loaded), the first one closer to him; one more watching in creative
+        ServerPlayer first = survivalPlayer(helper, 3, 1, 1, 0.0F), second = survivalPlayer(helper, 9, 1, 9, 0.0F), creative = player(helper, 9, 1, 1, 0.0F);
+        creative.setGameMode(GameType.CREATIVE);
+        herobrine.setTarget(first);
+        helper.startSequence()
+                .thenIdle(5)
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(first.hasEffect(MobEffects.DARKNESS) && second.hasEffect(MobEffects.DARKNESS), "The darkness must fall on everyone in the fight, not only on his target");
+                    helper.assertFalse(creative.hasEffect(MobEffects.DARKNESS), "The darkness must spare the players in creative");
+                })
+                .thenWaitUntil(() -> helper.assertTrue(herobrine.getTarget() == second && herobrine.distanceTo(second) < 4.0D, "With two players in the fight, a blink must take him to the other one"))
+                .thenExecute(() -> second.snapTo(second.getX() + 300.0D, second.getY(), second.getZ()))
+                .thenWaitUntil(() -> helper.assertTrue(herobrine.getTarget() == first, "When his target leaves the fight, he must turn to the one still in it"))
+                .thenExecute(() ->
+                {
+                    herobrine.discard();
+                    level.getEntitiesOfClass(HerobrineApparitionEntity.class, helper.getBounds().inflate(16.0D)).forEach(HerobrineApparitionEntity::discard);
+                    List.of(first, second, creative).forEach(DFTMGameTests::removePlayer);
+                })
+                .thenSucceed();
     }
 
     @GameTest(maxTicks = 20)
@@ -938,6 +1184,29 @@ public class DFTMGameTests
         return player;
     }
 
+    /** Like makeMockServerPlayerInLevel, but in survival: those always count as players in creative. Only in tests of the SURVIVAL_PLAYERS environment. */
+    private static ServerPlayer survivalPlayer(GameTestHelper helper, int x, int y, int z, float yaw)
+    {
+        ServerLevel level = helper.getLevel();
+        CommonListenerCookie cookie = CommonListenerCookie.createInitial(new GameProfile(UUID.randomUUID(), "test-mock-player"), false);
+        ServerPlayer player = new ServerPlayer(level.getServer(), level, cookie.gameProfile(), cookie.clientInformation())
+        {
+            @Override public GameType gameMode() {return GameType.SURVIVAL;}
+        };
+        Connection connection = new Connection(PacketFlow.SERVERBOUND);
+        new EmbeddedChannel(connection);
+        level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
+        player.setGameMode(GameType.SURVIVAL);
+        teleport(helper, player, x, y, z, yaw);
+        return player;
+    }
+
+    private static boolean hasAdvancement(ServerPlayer player, String name)
+    {
+        AdvancementHolder advancement = player.level().getServer().getAdvancements().get(DontFollowTheMap.id(name));
+        return advancement != null && player.getAdvancements().getOrStartProgress(advancement).isDone();
+    }
+
     private static void teleport(GameTestHelper helper, ServerPlayer player, int x, int y, int z, float yaw)
     {
         BlockPos pos = helper.absolutePos(new BlockPos(x, y, z));
@@ -952,6 +1221,17 @@ public class DFTMGameTests
     }
 
     private static void removePlayer(ServerPlayer player) {player.level().getServer().getPlayerList().remove(player);}
+
+    /** Takes down the barriers around the 8x8 test area: they stop whatever walks out of it, and block the view. */
+    private static void removeBarriers(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        AABB bounds = helper.getBounds();
+        for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(bounds.minX - 1.0D, bounds.minY - 1.0D, bounds.minZ - 1.0D), BlockPos.containing(bounds.maxX, bounds.maxY, bounds.maxZ)))
+        {
+            if (level.getBlockState(pos).is(Blocks.BARRIER)) {level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);}
+        }
+    }
 
     /** Runs a command as this player, with operator rights (mock players all share the same name: they can't be targeted by name). */
     private static void runCommandAs(GameTestHelper helper, ServerPlayer player, String command)

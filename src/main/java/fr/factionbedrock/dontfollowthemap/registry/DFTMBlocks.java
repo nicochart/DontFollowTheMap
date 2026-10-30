@@ -17,7 +17,7 @@ public class DFTMBlocks
 {
     public static final ResourceKey<Block> SEAL_KEY = ResourceKey.create(Registries.BLOCK, DontFollowTheMap.id("seal"));
 
-    //unbreakable and unmovable, like bedrock: the only way to deal with it is the map
+    //unbreakable and unmovable, like bedrock (withers and the dragon included: tags wither_immune and dragon_immune): the only way to deal with it is the map
     public static final SealBlock SEAL = Registry.register(BuiltInRegistries.BLOCK, SEAL_KEY, new SealBlock(BlockBehaviour.Properties.of().setId(SEAL_KEY)
             .mapColor(MapColor.COLOR_BLACK).instrument(NoteBlockInstrument.BASEDRUM).strength(-1.0F, 3600000.0F).noLootTable()
             .sound(SoundType.DEEPSLATE_TILES).pushReaction(PushReaction.IMMOVEABLE).isValidSpawn((state, level, pos, type) -> false)

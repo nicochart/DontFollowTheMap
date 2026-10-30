@@ -25,12 +25,12 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
-import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -40,20 +40,26 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * Herobrine passing for a player in a lived-in place. Wearing the skin and the name of another connected player (a default skin
- * and no name when nobody else is there), it goes from one workstation to another: it opens the chests, stays at the crafting
- * table or the furnace, opens and closes the doors on its way, and pays no attention to the player... unless it punches them
- * when they come too close. Hit it: it takes the blow, then freezes, stares, shows its real face for an instant, and is gone.
+ * and no name when nobody else is there), it goes from one workstation to another at a player's pace: it opens the chests, stays at
+ * the crafting table or the furnace, opens the closed doors on its way and turns around to close them behind itself (never the ones
+ * it found open), and pays no attention to the player... unless it punches them when they come too close.
+ * Hit it: it takes the blow, then freezes, stares, shows its real face for an instant, and is gone.
  */
 public class ImitatorEntity extends PathfinderMob
 {
@@ -71,6 +77,17 @@ public class ImitatorEntity extends PathfinderMob
     private static final double PUNCH_RANGE = 2.5D;
     private static final float PUNCH_CHANCE = 0.4F;
     private static final List<Item> HELD_ITEMS = List.of(Items.OAK_PLANKS, Items.OAK_LOG, Items.COBBLESTONE, Items.TORCH, Items.COAL, Items.IRON_INGOT, Items.BREAD, Items.STICK);
+    /**
+     * On the ground, a mob covers about 2.16 × speed² blocks per tick, where a player covers 2.16 × their speed: at √0.1, it walks like a player
+     * (4.3 blocks per second). Sprinting adds 30% to the speed of both, which is too much here: it is the square that must gain 30%.
+     */
+    public static final double WALKING_SPEED = Math.sqrt(0.1D), SPRINTING_SPEED_MODIFIER = 1.0D / Math.sqrt(1.3D);
+    /** It sprints to the workstations farther than this, until it gets this close. */
+    private static final double SPRINT_DISTANCE = 10.0D, STOP_SPRINTING_DISTANCE = 4.0D;
+    /** It opens a closed door on its way this close to it, and closes the ones it opened once this far past them, if still within reach. */
+    private static final double OPEN_DOOR_DISTANCE = 1.8D, CLOSE_DOOR_DISTANCE = 2.0D, DOOR_REACH = 4.5D;
+    /** Closing a door behind itself: it turns around, swings its hand after TURN_TICKS, and goes on its way after CLOSE_DOOR_TICKS. */
+    private static final int TURN_TICKS = 5, CLOSE_DOOR_TICKS = 11;
 
     @Nullable private UUID victimId;
     private final List<BlockPos> workstations = new ArrayList<>();
@@ -87,17 +104,23 @@ public class ImitatorEntity extends PathfinderMob
     private int punchCooldown;
     @Nullable private UUID unmaskedBy;
     private int stareTicks;
+    /** The doors it opened on its way and hasn't closed yet (lower halves). */
+    private final List<BlockPos> openedDoors = new ArrayList<>();
+    /** The door it turned around to close. */
+    @Nullable private BlockPos closingDoor;
+    private int closingTicks;
 
     public ImitatorEntity(EntityType<? extends ImitatorEntity> type, Level level)
     {
         super(type, level);
         this.xpReward = 0;
+        //its paths go through the closed doors: it opens them itself (see openDoorsAhead)
         this.getNavigation().setCanOpenDoors(true);
     }
 
     public static AttributeSupplier.Builder createAttributes()
     {
-        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 20.0D).add(Attributes.MOVEMENT_SPEED, 0.3D).add(Attributes.ATTACK_DAMAGE, 2.0D).add(Attributes.FOLLOW_RANGE, 32.0D);
+        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 20.0D).add(Attributes.MOVEMENT_SPEED, WALKING_SPEED).add(Attributes.ATTACK_DAMAGE, 2.0D).add(Attributes.FOLLOW_RANGE, 32.0D);
     }
 
     /** Starts pretending next to the given workstations, for this victim. */
@@ -109,6 +132,8 @@ public class ImitatorEntity extends PathfinderMob
         imitator.snapTo(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, yaw, 0.0F);
         imitator.setYHeadRot(yaw);
         imitator.setYBodyRot(yaw);
+        //it stands on the ground from the start: it can find its way at once (no path is looked for in mid-air)
+        imitator.setOnGround(true);
         imitator.victimId = victim.getUUID();
         imitator.workstations.addAll(workstations);
         imitator.punches = random.nextFloat() < PUNCH_CHANCE;
@@ -168,8 +193,6 @@ public class ImitatorEntity extends PathfinderMob
     @Override protected void registerGoals()
     {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        //on its way, it opens the doors and closes them behind itself, as a player would
-        this.goalSelector.addGoal(1, new OpenDoorGoal(this, true));
     }
 
     @Override protected void customServerAiStep(ServerLevel level)
@@ -193,6 +216,11 @@ public class ImitatorEntity extends PathfinderMob
             return;
         }
         if (this.punchCooldown > 0) {this.punchCooldown--;}
+        if (this.closingDoor != null)
+        {
+            this.tickClosingDoor(level);
+            return;
+        }
         if (this.punches && this.punchCooldown == 0 && this.distanceToSqr(victim) < PUNCH_RANGE * PUNCH_RANGE && this.hasLineOfSight(victim))
         {
             this.punch(level, victim);
@@ -202,6 +230,11 @@ public class ImitatorEntity extends PathfinderMob
         if (this.using) {this.tickUsing(level);}
         else if (this.workstation != null) {this.tickWalking(level);}
         else {this.tickIdle(level);}
+        if (!this.using)
+        {
+            this.openDoorsAhead(level);
+            this.closeDoorsBehind(level);
+        }
     }
 
     private void tickIdle(ServerLevel level)
@@ -237,7 +270,19 @@ public class ImitatorEntity extends PathfinderMob
         this.walkTo(this.workstation);
     }
 
-    private void walkTo(BlockPos pos) {this.getNavigation().moveTo(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, 0.7D);}
+    private void walkTo(BlockPos pos)
+    {
+        //like a player, it sprints when it has a way to go
+        boolean far = this.distanceToSqr(Vec3.atBottomCenterOf(pos)) > SPRINT_DISTANCE * SPRINT_DISTANCE;
+        this.setSprinting(far);
+        this.getNavigation().moveTo(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, far ? SPRINTING_SPEED_MODIFIER : 1.0D);
+    }
+
+    private void stopSprinting()
+    {
+        this.setSprinting(false);
+        this.getNavigation().setSpeedModifier(1.0D);
+    }
 
     private boolean isInReach(BlockPos pos) {return this.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) < REACH * REACH;}
 
@@ -249,6 +294,7 @@ public class ImitatorEntity extends PathfinderMob
             this.startUsing(level);
             return;
         }
+        if (this.isSprinting() && this.distanceToSqr(Vec3.atBottomCenterOf(target)) < STOP_SPRINTING_DISTANCE * STOP_SPRINTING_DISTANCE) {this.stopSprinting();}
         //out of reach: it forgets about that one
         if (this.stepTicks <= 0)
         {
@@ -263,6 +309,7 @@ public class ImitatorEntity extends PathfinderMob
     private void startUsing(ServerLevel level)
     {
         this.getNavigation().stop();
+        this.stopSprinting();
         this.using = true;
         this.stepTicks = Mth.nextInt(this.random, 60, 160);
         this.getLookControl().setLookAt(Vec3.atCenterOf(this.workstation));
@@ -318,10 +365,106 @@ public class ImitatorEntity extends PathfinderMob
         return true;
     }
 
+    //doors
+    /** Opens the closed doors right ahead on its path, with a swing of the hand like a player's click. */
+    private void openDoorsAhead(ServerLevel level)
+    {
+        Path path = this.getNavigation().getPath();
+        if (path != null && !path.isDone())
+        {
+            for (int i = path.getNextNodeIndex(); i < Math.min(path.getNextNodeIndex() + 2, path.getNodeCount()); i++)
+            {
+                BlockPos pos = path.getNode(i).asBlockPos();
+                if (horizontalDistance(this.position(), pos) <= OPEN_DOOR_DISTANCE) {this.openDoor(level, pos);}
+            }
+        }
+        //caught in a doorway someone closed
+        if (this.horizontalCollision) {this.openDoor(level, this.blockPosition());}
+    }
+
+    private void openDoor(ServerLevel level, BlockPos pos)
+    {
+        BlockState state = level.getBlockState(pos);
+        if (!DoorBlock.isWoodenDoor(state) || !(state.getBlock() instanceof DoorBlock door) || door.isOpen(state)) {return;}
+        BlockPos lower = state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.immutable() : pos.below();
+        this.getLookControl().setLookAt(lower.getX() + 0.5D, lower.getY() + 1.0D, lower.getZ() + 0.5D);
+        this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+        door.setOpen(this, level, state, pos, true);
+        if (!this.openedDoors.contains(lower)) {this.openedDoors.add(lower);}
+    }
+
+    /**
+     * Once past a door it opened, it turns around to close it: not while it is still in the doorway (nor while someone else is),
+     * not if its way goes back through it, and not if it already is out of reach (then it is left open).
+     * The doors it found open stay open.
+     */
+    private void closeDoorsBehind(ServerLevel level)
+    {
+        Path path = this.getNavigation().getPath();
+        Iterator<BlockPos> doors = this.openedDoors.iterator();
+        while (doors.hasNext())
+        {
+            BlockPos door = doors.next();
+            BlockState state = level.getBlockState(door);
+            double distance = horizontalDistance(this.position(), door);
+            //closed by someone else, broken, or too far: none of its business any more
+            if (!(state.getBlock() instanceof DoorBlock block) || !block.isOpen(state) || distance > DOOR_REACH) {doors.remove(); continue;}
+            if (distance < CLOSE_DOOR_DISTANCE || isAhead(path, door) || isDoorwayTaken(level, door)) {continue;}
+            doors.remove();
+            this.closingDoor = door;
+            this.closingTicks = 0;
+            this.getNavigation().stop();
+            this.stopSprinting();
+            return;
+        }
+    }
+
+    /** Turned around towards the door: the swing of the hand that closes it, then on its way again. */
+    private void tickClosingDoor(ServerLevel level)
+    {
+        BlockPos door = this.closingDoor;
+        this.getLookControl().setLookAt(door.getX() + 0.5D, door.getY() + 1.0D, door.getZ() + 0.5D, 45.0F, 45.0F);
+        this.setYRot(this.getYHeadRot());
+        this.setYBodyRot(this.getYHeadRot());
+        if (++this.closingTicks == TURN_TICKS)
+        {
+            BlockState state = level.getBlockState(door);
+            if (state.getBlock() instanceof DoorBlock block && block.isOpen(state) && !isDoorwayTaken(level, door))
+            {
+                this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+                block.setOpen(this, level, state, door, false);
+            }
+        }
+        if (this.closingTicks < CLOSE_DOOR_TICKS) {return;}
+        this.closingDoor = null;
+        if (this.workstation != null && !this.using) {this.walkTo(this.workstation);}
+    }
+
+    private static double horizontalDistance(Vec3 from, BlockPos pos) {return Math.sqrt(Mth.square(pos.getX() + 0.5D - from.x) + Mth.square(pos.getZ() + 0.5D - from.z));}
+
+    /** Whether the rest of the path goes through that door. */
+    private static boolean isAhead(@Nullable Path path, BlockPos door)
+    {
+        if (path == null || path.isDone()) {return false;}
+        for (int i = path.getNextNodeIndex(); i < path.getNodeCount(); i++)
+        {
+            BlockPos node = path.getNode(i).asBlockPos();
+            if (node.equals(door) || node.equals(door.above())) {return true;}
+        }
+        return false;
+    }
+
+    /** Someone (or something) stands in the doorway: a player wouldn't close the door on them. */
+    private boolean isDoorwayTaken(ServerLevel level, BlockPos door)
+    {
+        return !level.getEntitiesOfClass(LivingEntity.class, AABB.encapsulatingFullBlocks(door, door.above()), entity -> entity != this && entity.isAlive() && !entity.isSpectator()).isEmpty();
+    }
+
     private void punch(ServerLevel level, ServerPlayer victim)
     {
         this.stopUsing(level);
         this.getNavigation().stop();
+        this.stopSprinting();
         this.getLookControl().setLookAt(victim, 180.0F, 180.0F);
         this.swingForAttack(InteractionHand.MAIN_HAND);
         this.doHurtTarget(level, victim);
@@ -337,6 +480,8 @@ public class ImitatorEntity extends PathfinderMob
         this.unmaskedBy = player.getUUID();
         this.stopUsing(level);
         this.getNavigation().stop();
+        this.stopSprinting();
+        this.closingDoor = null;
     }
 
     private void tickUnmasked(ServerLevel level)
