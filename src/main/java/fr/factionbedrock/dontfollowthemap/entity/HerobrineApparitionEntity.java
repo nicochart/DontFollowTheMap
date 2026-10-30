@@ -6,8 +6,10 @@ import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.util.Facing;
+import fr.factionbedrock.dontfollowthemap.util.HauntEffects;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -61,7 +63,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
          */
         LURK,
         /**
-         * Behind the player: it creeps up on them while their back is turned, and runs at them once they see it. Each of its blows comes with
+         * Behind the player: it creeps up on them while their back is turned, and runs at them once it is on their screen. Each of its blows comes with
          * the darkness, then it is gone, behind them again. Only the third blow it takes makes it go away: until then, it can kill.
          */
         STALK,
@@ -108,6 +110,8 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private int waitTicks;
     private int stuckTicks;
     private double closest = Double.MAX_VALUE;
+    /** STALK: whether its player sees it on their screen, as their client says (see setSeenBy). */
+    private boolean seenByTarget;
 
     public HerobrineApparitionEntity(EntityType<? extends HerobrineApparitionEntity> type, Level level)
     {
@@ -162,6 +166,15 @@ public class HerobrineApparitionEntity extends PathfinderMob
     /** STALK: the blows it took. */
     public int getHits() {return this.hits;}
 
+    /**
+     * A client tells whether its player sees this apparition on their screen (client/HerobrineSight, network/HerobrineSeenPayload):
+     * only the word of the player it is after counts. The server can't tell by itself: it doesn't know their field of view.
+     */
+    public void setSeenBy(ServerPlayer player, boolean seen) {if (player.getUUID().equals(this.targetId)) {this.seenByTarget = seen;}}
+
+    /** Whether the player it is after sees it, as their client last said. */
+    public boolean isSeenByTarget() {return this.seenByTarget;}
+
     /** One that stays a while (a sighting, a stalk, one lurking behind a wall), not a flash, a shade nor a strike (known on both sides). */
     public boolean isWatching() {return this.entityData.get(DATA_WATCHING);}
 
@@ -170,10 +183,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
 
     @Override protected EntityDimensions getDefaultDimensions(Pose pose) {return pose == Pose.CROUCHING ? CROUCHING_DIMENSIONS : super.getDefaultDimensions(pose);}
 
-    @Nullable public ServerPlayer getTargetPlayer()
-    {
-        return this.targetId != null && this.level() instanceof ServerLevel level && level.getPlayerByUUID(this.targetId) instanceof ServerPlayer player ? player : null;
-    }
+    @Nullable public ServerPlayer getTargetPlayer() {return this.level() instanceof ServerLevel level ? Players.inLevel(level, this.targetId) : null;}
 
     @Override public void tick()
     {
@@ -184,7 +194,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private void serverTick(ServerLevel level)
     {
         ServerPlayer target = this.getTargetPlayer();
-        if (target == null || !target.isAlive() || target.isSpectator() || target.level() != level || this.distanceToSqr(target) > 96.0D * 96.0D)
+        if (target == null || !Players.isInTheGame(target) || this.distanceToSqr(target) > 96.0D * 96.0D)
         {
             this.vanish(level, false);
             return;
@@ -239,9 +249,10 @@ public class HerobrineApparitionEntity extends PathfinderMob
             this.getNavigation().stop();
             return;
         }
-        boolean seen = !HauntSpots.isHiddenFrom(target, this.getEyePosition());
-        if (this.tickCount % 5 == 1) {this.getNavigation().moveTo(target, seen ? CHARGE_SPEED : CREEP_SPEED);}
-        else {this.getNavigation().setSpeedModifier(seen ? CHARGE_SPEED : CREEP_SPEED);}
+        //it runs once it is on their screen
+        double speed = this.seenByTarget ? CHARGE_SPEED : CREEP_SPEED;
+        if (this.tickCount % 5 == 1) {this.getNavigation().moveTo(target, speed);}
+        else {this.getNavigation().setSpeedModifier(speed);}
         double distance = this.distanceTo(target);
         if (distance < STALK_REACH && this.hasLineOfSight(target))
         {
@@ -264,8 +275,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     /** STALK: gone in a puff of smoke, back behind its player, out of their sight, where it waits a moment. */
     private void blinkBehind(ServerLevel level, ServerPlayer target)
     {
-        level.sendParticles(ParticleTypes.LARGE_SMOKE, this.getX(), this.getY() + 0.9D, this.getZ(), 20, 0.25D, 0.6D, 0.25D, 0.02D);
-        level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.BLINK, SoundSource.HOSTILE, 0.6F, 1.0F);
+        HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
         Vec3 spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 110.0D, 180.0D);
         if (spot != null)
         {
@@ -282,10 +292,12 @@ public class HerobrineApparitionEntity extends PathfinderMob
     private void watch(ServerLevel level)
     {
         ServerPlayer starer = null;
-        for (ServerPlayer player : level.getPlayers(player -> player.isAlive() && !player.isSpectator() && this.distanceToSqr(player) < 96.0D * 96.0D))
+        for (ServerPlayer player : level.players())
         {
-            if (this.distanceToSqr(player) < VANISH_DISTANCE * VANISH_DISTANCE) {this.vanish(level, true, player); return;}
-            if (starer == null && this.tickCount % 4 == 0 && this.isStaredAtBy(player)) {starer = player;}
+            if (!Players.isInTheGame(player)) {continue;}
+            double distanceSqr = this.distanceToSqr(player);
+            if (distanceSqr < VANISH_DISTANCE * VANISH_DISTANCE) {this.vanish(level, true, player); return;}
+            if (starer == null && distanceSqr < 96.0D * 96.0D && this.tickCount % 4 == 0 && this.isStaredAtBy(player)) {starer = player;}
         }
         if (this.tickCount % 4 != 0) {return;}
         this.stareTicks = starer != null ? this.stareTicks + 4 : Math.max(0, this.stareTicks - 2);
@@ -339,7 +351,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         double dx = target.getX() - this.getX(), dz = target.getZ() - this.getZ();
         double dy = target.getEyeY() - this.getEyeY();
-        float yaw = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
+        float yaw = Facing.yawTowards(dx, dz);
         float pitch = (float) -(Mth.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * Mth.RAD_TO_DEG);
         this.setYRot(yaw);
         this.setYHeadRot(yaw);
@@ -354,11 +366,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
     {
         if (this.vanished) {return;}
         this.vanished = true;
-        if (withSmoke)
-        {
-            level.sendParticles(ParticleTypes.LARGE_SMOKE, this.getX(), this.getY() + 0.9D, this.getZ(), 25, 0.25D, 0.6D, 0.25D, 0.02D);
-            level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.VANISH, SoundSource.HOSTILE, 1.0F, 1.0F);
-        }
+        if (withSmoke) {HauntEffects.puffOfSmoke(level, this.position(), 25, DFTMSounds.VANISH, 1.0F, 1.0F);}
         ServerPlayer target = this.getTargetPlayer();
         boolean targetAround = target != null && target.level() == level && this.distanceToSqr(target) < 64.0D * 64.0D;
         if (this.leavesMap && targetAround) {SealEvents.leaveMap(level, this.position(), target);}

@@ -1,12 +1,6 @@
 package fr.factionbedrock.dontfollowthemap.client;
 
-import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
-import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
-import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
-import fr.factionbedrock.dontfollowthemap.entity.UnseenEntity;
-import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessedAnimal;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -43,21 +37,11 @@ public class ScrambledCoordinates
             return;
         }
         if (camera.tickCount % INTERVAL != 0) {return;}
-        active = isSomethingAround(minecraft.level, camera);
+        active = HerobrineAround.isAnythingWithin(camera, RANGE);
         if (!active) {return;}
         x = Mth.nextDouble(RANDOM, -30000.0D, 30000.0D);
         y = Mth.nextDouble(RANDOM, minecraft.level.getMinY(), minecraft.level.getMaxY());
         z = Mth.nextDouble(RANDOM, -30000.0D, 30000.0D);
-    }
-
-    private static boolean isSomethingAround(ClientLevel level, Entity camera)
-    {
-        for (Entity entity : level.entitiesForRendering())
-        {
-            if ((entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof ImitatorEntity || entity instanceof UnseenEntity || entity instanceof PossessedAnimal)
-                    && entity.distanceToSqr(camera) < RANGE * RANGE) {return true;}
-        }
-        return false;
     }
 
     /** The position lines of the debug screen (DebugEntryPositionMixin), with the made up place instead of the real one; the other lines stay. */

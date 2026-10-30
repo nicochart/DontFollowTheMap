@@ -4,6 +4,8 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
+import fr.factionbedrock.dontfollowthemap.util.HauntEffects;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
@@ -123,7 +125,7 @@ public class UnseenEntity extends PathfinderMob
     /** How many stacks it takes before running away (3 to 5, picked at random when it appears). */
     public void setWanted(int wanted) {this.wanted = wanted;}
 
-    @Nullable private ServerPlayer getVictim(ServerLevel level) {return this.victimId != null && level.getPlayerByUUID(this.victimId) instanceof ServerPlayer player ? player : null;}
+    @Nullable private ServerPlayer getVictim(ServerLevel level) {return Players.inLevel(level, this.victimId);}
 
     @Override public void tick()
     {
@@ -134,7 +136,7 @@ public class UnseenEntity extends PathfinderMob
     private void serverTick(ServerLevel level)
     {
         ServerPlayer victim = this.getVictim(level);
-        if (victim == null || !victim.isAlive() || victim.level() != level)
+        if (victim == null || !Players.isInTheGame(victim))
         {
             this.leave(level, false);
             return;
@@ -256,11 +258,7 @@ public class UnseenEntity extends PathfinderMob
     private void leave(ServerLevel level, boolean withSmoke)
     {
         this.gone = true;
-        if (withSmoke)
-        {
-            level.sendParticles(ParticleTypes.LARGE_SMOKE, this.getX(), this.getY() + 0.9D, this.getZ(), 20, 0.25D, 0.6D, 0.25D, 0.02D);
-            level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.VANISH, SoundSource.HOSTILE, 1.0F, 1.2F);
-        }
+        if (withSmoke) {HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.VANISH, 1.0F, 1.2F);}
         this.discard();
     }
 

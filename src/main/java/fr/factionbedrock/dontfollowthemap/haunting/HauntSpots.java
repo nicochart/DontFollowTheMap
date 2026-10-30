@@ -1,15 +1,19 @@
 package fr.factionbedrock.dontfollowthemap.haunting;
 
+import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -30,6 +34,8 @@ public class HauntSpots
 {
     /** A chunk must have been lived in for this long (summed over all players) to count as a home. */
     public static final long MIN_HOME_INHABITED_TIME = 12000L;
+    /** Ground nobody built: data/dontfollowthemap/tags/block/natural_ground.json. */
+    public static final TagKey<Block> NATURAL_GROUND = TagKey.create(Registries.BLOCK, DontFollowTheMap.id("natural_ground"));
 
     /**
      * Every block matching the predicate in a box around the center, in loaded chunks. Cheap enough to run on the fly:

@@ -19,6 +19,7 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingData;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
+import fr.factionbedrock.dontfollowthemap.haunting.Reaction;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.TorchSwaps;
 import fr.factionbedrock.dontfollowthemap.haunting.TunnelWatcher;
@@ -133,6 +134,7 @@ public class DFTMGameTests
         data.setStage(HauntingData.HAUNTED, 0L);
         helper.assertTrue(data.stage(0L) == HauntingData.HAUNTED, "setStage(HAUNTED) must give the haunted stage");
         data.mapDeliveredAt = 1234L;
+        data.startCooldown(Reaction.GRAVE, 1000L);
         data.addStolen(new ItemStack(Items.DIAMOND, 3));
         data.addStolen(new ItemStack(Items.DIAMOND, 2));
         helper.assertTrue(data.stolen.size() == 1 && data.stolen.get(0).getCount() == 5, "Stolen items must stack");
@@ -143,6 +145,8 @@ public class DFTMGameTests
         Tag saved = HauntingData.CODEC.encodeStart(ops, data).getOrThrow();
         HauntingData loaded = HauntingData.CODEC.parse(ops, saved).getOrThrow();
         helper.assertTrue(loaded.hauntTicks == data.hauntTicks && loaded.mapDeliveredAt == 1234L && loaded.stolen.size() == 1 && loaded.stolen.get(0).is(Items.DIAMOND), "Haunting data must survive a save");
+        helper.assertTrue(loaded.isOnCooldown(Reaction.GRAVE, 1001L) && !loaded.isOnCooldown(Reaction.GRAVE, 1000L + Reaction.GRAVE.cooldown()) && !loaded.isOnCooldown(Reaction.THEFT, 1001L),
+                "When each reaction last happened must survive a save, and its cooldown end in time");
 
         data.onHerobrineDefeated(1000L);
         helper.assertTrue(data.stage(1000L) == HauntingData.QUIET && !data.hasMapBeenDelivered() && data.defeats == 1, "Defeating Herobrine must bring peace");
@@ -198,7 +202,6 @@ public class DFTMGameTests
         removeBarriers(helper);
         //facing south, the stalker right behind them
         ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 0.0F);
-        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
         HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(level, helper.absoluteVec(new Vec3(4.5D, 1.0D, -3.5D)), player, HerobrineApparitionEntity.Mode.STALK, HerobrineApparitionEntity.STALK_LIFETIME);
         stalker.setFogging(player);
         helper.startSequence()
@@ -465,7 +468,6 @@ public class DFTMGameTests
         //one player with no armor, one in full iron (mock players never tick: their armor would never count, their armor value is given right away)
         ServerPlayer bare = survivalPlayer(helper, 1, 1, 0, 0.0F), armored = survivalPlayer(helper, 6, 1, 0, 0.0F);
         armored.getAttribute(Attributes.ARMOR).setBaseValue(15.0D);
-        List.of(bare, armored).forEach(player -> player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket()));
         List<Animal> possessed = List.of(PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(1, 1, 5)), bare),
                 PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(6, 1, 5)), armored));
         //close enough for them to charge
@@ -676,9 +678,7 @@ public class DFTMGameTests
         //a player who isn't haunted yet: the command doesn't care about the stage, the chance or the cooldown
         ServerPlayer player = player(helper, 4, 1, 0, 180.0F);
         player.setGameMode(GameType.SURVIVAL);
-        BlockPos first = helper.absolutePos(new BlockPos(3, 1, 6)), second = helper.absolutePos(new BlockPos(5, 1, 6));
-        level.setBlock(first, Blocks.DIRT.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(second, Blocks.DIRT.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos first = place(helper, 3, 1, 6, Blocks.DIRT), second = place(helper, 5, 1, 6, Blocks.DIRT);
         AABB around = new AABB(first).inflate(8.0D);
         runCommandAs(helper, player, "dontfollowthemap trigger thief");
         helper.assertTrue(player.gameMode.destroyBlock(first), "The player must break the first block");
@@ -707,8 +707,7 @@ public class DFTMGameTests
         floor(helper, -8, 15, Blocks.STONE);
         //the crafting table is behind the player
         ServerPlayer player = player(helper, 4, 1, -4, 180.0F);
-        BlockPos table = helper.absolutePos(new BlockPos(4, 1, 6));
-        level.setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos table = place(helper, 4, 1, 6, Blocks.CRAFTING_TABLE);
         level.getChunkAt(table).setInhabitedTime(100000L);
         helper.assertTrue(HauntEvents.imitator(player), "An imitator must appear in a lived-in place");
         List<ImitatorEntity> imitators = level.getEntitiesOfClass(ImitatorEntity.class, new AABB(table).inflate(2.0D), imitator -> imitator.isImitatingFor(player));
@@ -725,8 +724,7 @@ public class DFTMGameTests
         ServerLevel level = helper.getLevel();
         floor(helper, -8, 15, Blocks.STONE);
         ServerPlayer player = player(helper, 4, 1, 0, 180.0F);
-        BlockPos barrel = helper.absolutePos(new BlockPos(4, 1, 6));
-        level.setBlock(barrel, Blocks.BARREL.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos barrel = place(helper, 4, 1, 6, Blocks.BARREL);
         //the player is in creative: it doesn't go for a sword
         ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 5)), player, List.of(barrel));
         helper.startSequence()
@@ -759,11 +757,8 @@ public class DFTMGameTests
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -1, 8, Blocks.STONE);
-        BlockPos table = helper.absolutePos(new BlockPos(6, 1, 4));
-        level.setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos table = place(helper, 6, 1, 4, Blocks.CRAFTING_TABLE);
         ServerPlayer player = survivalPlayer(helper, 1, 1, 0, 0.0F);
-        //what a real client says once the world is loaded: players can't be hurt before
-        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
         ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(2, 1, 6)), player, List.of(table));
         helper.startSequence()
                 .thenIdle(10)
@@ -830,7 +825,6 @@ public class DFTMGameTests
         floor(helper, -1, 8, Blocks.STONE);
         //too far for it to notice them: it is still pretending when they hit it (with an arrow, say)
         ServerPlayer player = survivalPlayer(helper, 4, 1, 0, 0.0F);
-        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
         ImitatorEntity imitator = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(4, 1, 7)), player, List.of());
         helper.startSequence()
                 .thenIdle(5)
@@ -862,9 +856,7 @@ public class DFTMGameTests
         removeBarriers(helper);
         ServerPlayer player = player(helper, 4, 1, -6, 0.0F);
         //a workstation close by: it walks there; a far one: it sprints
-        BlockPos near = helper.absolutePos(new BlockPos(1, 1, 10)), far = helper.absolutePos(new BlockPos(8, 1, 18));
-        level.setBlock(near, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(far, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos near = place(helper, 1, 1, 10, Blocks.CRAFTING_TABLE), far = place(helper, 8, 1, 18, Blocks.CRAFTING_TABLE);
         ImitatorEntity walker = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(1, 1, 1)), player, List.of(near));
         ImitatorEntity sprinter = ImitatorEntity.spawn(level, helper.absolutePos(new BlockPos(8, 1, 1)), player, List.of(far));
         Vec3[] from = new Vec3[2];
@@ -940,8 +932,7 @@ public class DFTMGameTests
     /** On one side of the wall, going to a crafting table far enough on the other side. */
     private static ImitatorEntity imitatorBehindTheWall(GameTestHelper helper, ServerPlayer victim)
     {
-        BlockPos table = helper.absolutePos(new BlockPos(4, 1, 13));
-        helper.getLevel().setBlock(table, Blocks.CRAFTING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos table = place(helper, 4, 1, 13, Blocks.CRAFTING_TABLE);
         return ImitatorEntity.spawn(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 2)), victim, List.of(table));
     }
 
@@ -1055,9 +1046,8 @@ public class DFTMGameTests
         rock(helper);
         carve(helper, 4, 1, 6);
         ServerPlayer player = player(helper, 4, 1, 6, 0.0F);
-        BlockPos bottom = helper.absolutePos(new BlockPos(4, 1, 3)), feet = helper.absolutePos(new BlockPos(4, 1, 2));
-        level.setBlock(bottom, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(bottom.above(), Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos bottom = place(helper, 4, 1, 3, Blocks.STONE), feet = helper.absolutePos(new BlockPos(4, 1, 2));
+        place(helper, 4, 2, 3, Blocks.STONE);
         HerobrineApparitionEntity lurker = HerobrineApparitionEntity.lurk(level, feet, player, bottom, 20);
         helper.succeedWhen(() ->
         {
@@ -1175,8 +1165,7 @@ public class DFTMGameTests
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -4, 11, Blocks.STONE);
-        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
-        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos seal = place(helper, 4, 1, 4, DFTMBlocks.SEAL);
         ServerPlayer player = player(helper, 1, 1, 1, 0.0F);
         //breaking the seal doesn't look at which shrine the map leads to (the seal block does)
         ItemStack map = SealMaps.create(level, new SealShrines.Shrine(-1, seal, Direction.NORTH, SealShrines.Stage.BUILT));
@@ -1201,8 +1190,7 @@ public class DFTMGameTests
     {
         ServerLevel level = helper.getLevel();
         floor(helper, 0, 8, Blocks.STONE);
-        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
-        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPos seal = place(helper, 4, 1, 4, DFTMBlocks.SEAL);
         BlockState state = level.getBlockState(seal);
         helper.assertTrue(state.getDestroySpeed(level, seal) < 0.0F, "The seal must not be breakable by hand");
         helper.assertFalse(WitherBoss.canDestroy(state), "A wither must not break the seal");
@@ -1233,8 +1221,7 @@ public class DFTMGameTests
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -4, 11, Blocks.STONE);
-        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
-        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState().setValue(SealBlock.STATE, SealBlock.State.OPEN), Block.UPDATE_ALL);
+        BlockPos seal = place(helper, 4, 1, 4, DFTMBlocks.SEAL.defaultBlockState().setValue(SealBlock.STATE, SealBlock.State.OPEN));
         HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(1, 1, 1));
         herobrine.setSealPos(seal);
         //a punching bag: it doesn't fight back and can't die, so Herobrine keeps using his powers on it
@@ -1268,8 +1255,7 @@ public class DFTMGameTests
     {
         ServerLevel level = helper.getLevel();
         floor(helper, -4, 11, Blocks.STONE);
-        BlockPos seal = helper.absolutePos(new BlockPos(4, 1, 4));
-        level.setBlock(seal, DFTMBlocks.SEAL.defaultBlockState().setValue(SealBlock.STATE, SealBlock.State.OPEN), Block.UPDATE_ALL);
+        BlockPos seal = place(helper, 4, 1, 4, DFTMBlocks.SEAL.defaultBlockState().setValue(SealBlock.STATE, SealBlock.State.OPEN));
         HerobrineEntity herobrine = helper.spawn(DFTMEntities.HEROBRINE, new BlockPos(1, 1, 1));
         herobrine.setSealPos(seal);
         //his last phase: the lights go out right away
@@ -1356,7 +1342,7 @@ public class DFTMGameTests
 
     /**
      * Like makeMockServerPlayerInLevel, but in survival: those always count as players in creative. Only in tests of their own environment (see SURVIVAL_PLAYERS).
-     * Like any player, they can't be hurt before their client says it loaded the world, or for 3 seconds.
+     * They can be hurt at once: their client says right away that it loaded the world (no player can be hurt before that, or for 3 seconds).
      */
     private static ServerPlayer survivalPlayer(GameTestHelper helper, int x, int y, int z, float yaw)
     {
@@ -1370,9 +1356,20 @@ public class DFTMGameTests
         new EmbeddedChannel(connection);
         level.getServer().getPlayerList().placeNewPlayer(connection, player, cookie);
         player.setGameMode(GameType.SURVIVAL);
+        player.connection.handleAcceptPlayerLoad(new ServerboundPlayerLoadedPacket());
         teleport(helper, player, x, y, z, yaw);
         return player;
     }
+
+    /** Sets this block of the test area, and gives its position in the world. */
+    private static BlockPos place(GameTestHelper helper, int x, int y, int z, BlockState state)
+    {
+        BlockPos pos = new BlockPos(x, y, z);
+        helper.setBlock(pos, state);
+        return helper.absolutePos(pos);
+    }
+
+    private static BlockPos place(GameTestHelper helper, int x, int y, int z, Block block) {return place(helper, x, y, z, block.defaultBlockState());}
 
     private static boolean hasAdvancement(ServerPlayer player, String name)
     {

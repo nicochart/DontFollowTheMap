@@ -39,6 +39,9 @@ public class TunnelWatcher
         while (breaks.size() > MEMORY) {breaks.removeFirst();}
     }
 
+    /** Left: what they dug is forgotten. */
+    public static void forget(ServerPlayer player) {BREAKS.remove(player.getUUID());}
+
     public static void clear() {BREAKS.clear();}
 
     /** The direction in which this player is digging a straight 2x1 tunnel right now (standing in it, near its front), or null. */

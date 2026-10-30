@@ -1,5 +1,6 @@
 package fr.factionbedrock.dontfollowthemap.client;
 
+import fr.factionbedrock.dontfollowthemap.util.Facing;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.debug.DebugScreenEntries;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -120,7 +121,7 @@ public class FakeHitboxes
 
     private static Vec3 behind(LocalPlayer player) {return player.position().subtract(Vec3.directionFromRotation(0.0F, player.getYRot()).scale(FOLLOW_DISTANCE));}
 
-    private static float yawTowards(Vec3 from, Vec3 to) {return (float) (Mth.atan2(to.z - from.z, to.x - from.x) * Mth.RAD_TO_DEG) - 90.0F;}
+    private static float yawTowards(Vec3 from, Vec3 to) {return Facing.yawTowards(to.x - from.x, to.z - from.z);}
 
     /** Where something could stand, near this point: on a solid floor, with room above. */
     @Nullable private static Vec3 ground(ClientLevel level, Vec3 near)

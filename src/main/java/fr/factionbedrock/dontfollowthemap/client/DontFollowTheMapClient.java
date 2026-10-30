@@ -28,8 +28,11 @@ public class DontFollowTheMapClient implements ClientModInitializer
         EntityRendererRegistry.register(DFTMEntities.POSSESSED_CHICKEN, ChickenRenderer::new);
         EntityRendererRegistry.register(DFTMEntities.UNSEEN, NoopRenderer::new);
         EntityRendererRegistry.register(DFTMEntities.IMITATOR, ImitatorRenderer::new);
+        //first: what the others look at
+        ClientTickEvents.END_CLIENT_TICK.register(HerobrineAround::tick);
         ClientTickEvents.END_CLIENT_TICK.register(HerobrineFog::tick);
         ClientTickEvents.END_CLIENT_TICK.register(HerobrineSounds::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(HerobrineSight::tick);
         ClientTickEvents.END_CLIENT_TICK.register(HauntedScreen::tick);
         ClientTickEvents.END_CLIENT_TICK.register(FakeHitboxes::tick);
         ClientTickEvents.END_CLIENT_TICK.register(ScrambledCoordinates::tick);

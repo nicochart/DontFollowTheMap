@@ -5,6 +5,7 @@ import fr.factionbedrock.dontfollowthemap.haunting.HauntEvents;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -225,8 +226,8 @@ public class ImitatorEntity extends PathfinderMob
     @Override protected void customServerAiStep(ServerLevel level)
     {
         super.customServerAiStep(level);
-        ServerPlayer victim = this.victimId != null && level.getPlayerByUUID(this.victimId) instanceof ServerPlayer player ? player : null;
-        if (victim == null || !victim.isAlive() || victim.isSpectator() || this.distanceToSqr(victim) > 96.0D * 96.0D)
+        ServerPlayer victim = Players.inLevel(level, this.victimId);
+        if (victim == null || !Players.isInTheGame(victim) || this.distanceToSqr(victim) > 96.0D * 96.0D)
         {
             this.discard();
             return;
@@ -487,14 +488,12 @@ public class ImitatorEntity extends PathfinderMob
     }
 
     //attack
-    private static boolean isHuntable(Player player) {return player.isAlive() && !player.isSpectator() && !player.isCreative();}
-
     /** A player in survival or adventure who came close, in its sight. */
     @Nullable private ServerPlayer findPrey(ServerLevel level)
     {
-        for (ServerPlayer player : level.getPlayers(player -> isHuntable(player) && this.distanceToSqr(player) < NOTICE_DISTANCE * NOTICE_DISTANCE))
+        for (ServerPlayer player : level.players())
         {
-            if (this.hasLineOfSight(player)) {return player;}
+            if (Players.isHuntable(player) && this.distanceToSqr(player) < NOTICE_DISTANCE * NOTICE_DISTANCE && this.hasLineOfSight(player)) {return player;}
         }
         return null;
     }
@@ -503,7 +502,8 @@ public class ImitatorEntity extends PathfinderMob
     @Nullable private ServerPlayer getPrey(ServerLevel level)
     {
         if (this.preyId == null) {return null;}
-        if (level.getPlayerByUUID(this.preyId) instanceof ServerPlayer player && isHuntable(player) && this.distanceToSqr(player) < GIVE_UP_DISTANCE * GIVE_UP_DISTANCE) {return player;}
+        ServerPlayer prey = Players.inLevel(level, this.preyId);
+        if (prey != null && Players.isHuntable(prey) && this.distanceToSqr(prey) < GIVE_UP_DISTANCE * GIVE_UP_DISTANCE) {return prey;}
         //gone: it goes back to its business (armed or not, for whoever comes next)
         this.preyId = null;
         this.craftingTable = null;
@@ -636,7 +636,7 @@ public class ImitatorEntity extends PathfinderMob
     {
         //it doesn't move by itself any more (the knockback of the blow still plays out)
         this.getNavigation().stop();
-        Player player = level.getPlayerByUUID(this.unmaskedBy);
+        ServerPlayer player = Players.inLevel(level, this.unmaskedBy);
         if (player != null)
         {
             this.getLookControl().setLookAt(player, 180.0F, 180.0F);
@@ -644,11 +644,11 @@ public class ImitatorEntity extends PathfinderMob
         }
         if (++this.stareTicks < STARE_TICKS) {return;}
         //its real face: for an instant, or coming for the one who hit it too soon
-        if (player instanceof ServerPlayer serverPlayer)
+        if (player != null)
         {
-            if (this.strikesBack) {HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.STRIKE, STRIKE_TICKS);}
-            else {HerobrineApparitionEntity.spawn(level, this.position(), serverPlayer, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);}
-            DFTMAdvancements.award(serverPlayer, "unmasked");
+            if (this.strikesBack) {HerobrineApparitionEntity.spawn(level, this.position(), player, HerobrineApparitionEntity.Mode.STRIKE, STRIKE_TICKS);}
+            else {HerobrineApparitionEntity.spawn(level, this.position(), player, HerobrineApparitionEntity.Mode.FLASH, REVEAL_TICKS);}
+            DFTMAdvancements.award(player, "unmasked");
         }
         HauntEvents.appearSuddenly(level, this.position());
         this.discard();
@@ -663,7 +663,7 @@ public class ImitatorEntity extends PathfinderMob
         if (!this.armed) {this.unmask(level, player, true);}
         else if (hurt && ++this.blowsTaken >= ARMED_BLOWS) {this.unmask(level, player, false);}
         //it turns on whoever hits it
-        else if (hurt && isHuntable(player)) {this.preyId = player.getUUID();}
+        else if (hurt && Players.isHuntable(player)) {this.preyId = player.getUUID();}
         return hurt;
     }
 

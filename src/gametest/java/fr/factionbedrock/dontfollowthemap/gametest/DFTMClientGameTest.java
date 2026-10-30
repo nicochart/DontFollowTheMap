@@ -216,6 +216,7 @@ public class DFTMClientGameTest implements FabricClientGameTest
                 check(HerobrineSounds.isAmbienceOn(), "Close behind the player, he must be heard");
                 check(HauntedScreen.strength() == 0.0F, "Behind the player, the stalker must not turn the screen into an old film before they see him (" + HauntedScreen.strength() + ")");
             });
+            server.runOnServer(minecraftServer -> check(!stalker(minecraftServer).isSeenByTarget(), "Behind the player, the stalker must know it is not seen (it creeps up)"));
             context.waitTicks(20 * 4);
             context.runOnClient(client -> check(client.player.hasEffect(MobEffects.DARKNESS), "Creeping up on the player while their back is turned, he must strike them, with the darkness"));
             context.takeScreenshot("dftm_stalk_struck");
@@ -228,6 +229,19 @@ public class DFTMClientGameTest implements FabricClientGameTest
             context.waitTicks(5);
             context.takeScreenshot("dftm_stalk_turned_around");
             discardEverythingButPlayers(server);
+            //right in front of the player: their client tells the server that it is seen (it runs at them then), and that it is not once they turn away
+            server.runOnServer(minecraftServer ->
+            {
+                ServerPlayer player = minecraftServer.getPlayerList().getPlayers().getFirst();
+                HerobrineApparitionEntity.spawn(minecraftServer.overworld(), new Vec3(0.5D, -60.0D, -11.5D), player, HerobrineApparitionEntity.Mode.STALK, 200).setFogging(player);
+            });
+            context.waitTicks(10);
+            server.runOnServer(minecraftServer -> check(stalker(minecraftServer).isSeenByTarget(), "Right in front of the player, the stalker must be told it is seen"));
+            server.runCommand("tp @a 0.5 -60 0.5 0 0");
+            context.waitTicks(10);
+            server.runOnServer(minecraftServer -> check(!stalker(minecraftServer).isSeenByTarget(), "Once the player turned away, the stalker must be told it is not seen any more"));
+            discardEverythingButPlayers(server);
+            server.runCommand("tp @a 0.5 -60 0.5 180 0");
             server.runCommand("effect clear @a");
             //the fog lifts once he is gone
             context.waitTicks(20 * 5);
@@ -471,6 +485,11 @@ public class DFTMClientGameTest implements FabricClientGameTest
     private static ImitatorEntity imitator(MinecraftServer server)
     {
         return server.overworld().getEntitiesOfClass(ImitatorEntity.class, new AABB(-16.0D, -64.0D, -16.0D, 16.0D, -50.0D, 16.0D)).getFirst();
+    }
+
+    private static HerobrineApparitionEntity stalker(MinecraftServer server)
+    {
+        return server.overworld().getEntitiesOfClass(HerobrineApparitionEntity.class, new AABB(-32.0D, -64.0D, -32.0D, 32.0D, -50.0D, 32.0D), apparition -> apparition.getMode() == HerobrineApparitionEntity.Mode.STALK).getFirst();
     }
 
     /** Removed, not killed: killing Herobrine would count as defeating him. */

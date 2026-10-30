@@ -2,6 +2,8 @@ package fr.factionbedrock.dontfollowthemap.entity.possessed;
 
 import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
+import fr.factionbedrock.dontfollowthemap.util.Facing;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -89,8 +91,8 @@ public class Possession
         this.phaseTicks++;
         //spawned from an egg: it picks whoever is around
         if (this.victimId == null && level.getNearestPlayer(this.animal, 32.0D) instanceof Player nearest) {this.victimId = nearest.getUUID();}
-        Player victim = this.victimId == null ? null : level.getPlayerByUUID(this.victimId);
-        if (victim == null || !victim.isAlive() || victim.isSpectator() || this.animal.distanceToSqr(victim) > 48.0D * 48.0D)
+        ServerPlayer victim = Players.inLevel(level, this.victimId);
+        if (victim == null || !Players.isInTheGame(victim) || this.animal.distanceToSqr(victim) > 48.0D * 48.0D)
         {
             this.release();
             return;
@@ -127,7 +129,7 @@ public class Possession
                     Vec3 away = DefaultRandomPos.getPosAway(this.animal, 16, 7, victim.position());
                     if (away != null) {this.animal.getNavigation().moveTo(away.x, away.y, away.z, 2.0D);}
                 }
-                boolean outOfSight = this.animal.distanceTo(victim) > 16.0D || (victim instanceof ServerPlayer player && HauntSpots.isHiddenFrom(player, this.animal.getEyePosition()));
+                boolean outOfSight = this.animal.distanceTo(victim) > 16.0D || HauntSpots.isHiddenFrom(victim, this.animal.getEyePosition());
                 if ((this.phaseTicks > MIN_FLEE_TICKS && outOfSight) || this.phaseTicks > MIN_FLEE_TICKS * 4) {this.release();}
             }
         }
@@ -153,7 +155,7 @@ public class Possession
         this.animal.getLookControl().setLookAt(victim, 30.0F, 90.0F);
         if (this.animal.getNavigation().isDone())
         {
-            float targetYaw = (float) (Mth.atan2(victim.getZ() - this.animal.getZ(), victim.getX() - this.animal.getX()) * Mth.RAD_TO_DEG) - 90.0F;
+            float targetYaw = Facing.yawTowards(victim.getX() - this.animal.getX(), victim.getZ() - this.animal.getZ());
             this.animal.setYBodyRot(Mth.approachDegrees(this.animal.yBodyRot, targetYaw, 6.0F));
         }
     }

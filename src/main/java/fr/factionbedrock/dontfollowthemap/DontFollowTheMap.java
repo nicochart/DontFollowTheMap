@@ -2,13 +2,16 @@ package fr.factionbedrock.dontfollowthemap;
 
 import fr.factionbedrock.dontfollowthemap.command.DFTMCommand;
 import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
+import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntingDirector;
 import fr.factionbedrock.dontfollowthemap.network.FightStartingPayload;
 import fr.factionbedrock.dontfollowthemap.network.HauntedPayload;
 import fr.factionbedrock.dontfollowthemap.network.HerobrineAppearedPayload;
+import fr.factionbedrock.dontfollowthemap.network.HerobrineSeenPayload;
 import fr.factionbedrock.dontfollowthemap.registry.*;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,11 @@ public class DontFollowTheMap implements ModInitializer
         PayloadTypeRegistry.clientboundPlay().register(FightStartingPayload.TYPE, FightStartingPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(HauntedPayload.TYPE, HauntedPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(HerobrineAppearedPayload.TYPE, HerobrineAppearedPayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(HerobrineSeenPayload.TYPE, HerobrineSeenPayload.CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(HerobrineSeenPayload.TYPE, (payload, context) ->
+        {
+            if (context.player().level().getEntity(payload.entityId()) instanceof HerobrineApparitionEntity apparition) {apparition.setSeenBy(context.player(), payload.seen());}
+        });
     }
 
     public static Identifier id(String path) {return Identifier.fromNamespaceAndPath(MODID, path);}

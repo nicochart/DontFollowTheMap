@@ -15,7 +15,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Util;
@@ -36,6 +35,7 @@ import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import fr.factionbedrock.dontfollowthemap.util.Facing;
 import fr.factionbedrock.dontfollowthemap.util.SignWoods;
 import fr.factionbedrock.dontfollowthemap.util.SignWriter;
 import org.jetbrains.annotations.Nullable;
@@ -107,7 +107,7 @@ public class HauntEvents
                 for (int i = 0; i < 4; i++)
                 {
                     Vec3 stepPos = behind.add(backwards.scale(i * 0.8D));
-                    DelayedTasks.schedule(1 + i * 7, () -> playSoundTo(player, step, stepPos, 0.25F, 0.9F));
+                    DelayedTasks.schedule(player, 1 + i * 7, () -> playSoundTo(player, step, stepPos, 0.25F, 0.9F));
                 }
             }
             //a creeper about to explode, right behind
@@ -120,7 +120,7 @@ public class HauntEvents
                 for (int hits = Mth.nextInt(random, 2, 3); hits > 0; hits--)
                 {
                     float pitch = (random.nextFloat() - random.nextFloat()) * 0.2F + 1.0F;
-                    DelayedTasks.schedule(delay, () -> playSoundTo(player, SoundEvents.ZOMBIE_HURT, fight, 1.0F, pitch));
+                    DelayedTasks.schedule(player, delay, () -> playSoundTo(player, SoundEvents.ZOMBIE_HURT, fight, 1.0F, pitch));
                     delay += Mth.nextInt(random, 8, 14);
                 }
             }
@@ -130,8 +130,8 @@ public class HauntEvents
                 SoundType block = (random.nextBoolean() ? Blocks.STONE : Blocks.DIRT).defaultBlockState().getSoundType();
                 Vec3 digging = player.position().add(backwards.scale(4.0D)).add(0.0D, 0.5D, 0.0D);
                 int blows = Mth.nextInt(random, 4, 7);
-                for (int blow = 0; blow < blows; blow++) {DelayedTasks.schedule(1 + blow * 4, () -> playSoundTo(player, block.getHitSound(), digging, (block.getVolume() + 1.0F) / 8.0F, block.getPitch() * 0.5F));}
-                DelayedTasks.schedule(1 + blows * 4, () -> playSoundTo(player, block.getBreakSound(), digging, (block.getVolume() + 1.0F) / 2.0F, block.getPitch() * 0.8F));
+                for (int blow = 0; blow < blows; blow++) {DelayedTasks.schedule(player, 1 + blow * 4, () -> playSoundTo(player, block.getHitSound(), digging, (block.getVolume() + 1.0F) / 8.0F, block.getPitch() * 0.5F));}
+                DelayedTasks.schedule(player, 1 + blows * 4, () -> playSoundTo(player, block.getBreakSound(), digging, (block.getVolume() + 1.0F) / 2.0F, block.getPitch() * 0.8F));
             }
             case BROKEN_TOOL -> playSoundTo(player, SoundEvents.ITEM_BREAK.value(), behind.add(0.0D, 1.2D, 0.0D), 0.8F, 0.8F + random.nextFloat() * 0.4F);
         }
@@ -185,9 +185,8 @@ public class HauntEvents
             if (!level.isLoaded(pos) || !HauntSpots.isReplaceable(level, pos) || !HauntSpots.isFree(level, pos.above()) || !level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), Direction.UP)) {continue;}
             if (!HauntSpots.isHiddenFrom(player, Vec3.atCenterOf(pos))) {continue;}
             //the text faces the bed
-            double dx = pos.getX() - home.getX(), dz = pos.getZ() - home.getZ();
-            float yawFromHome = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
-            level.setBlock(pos, SignWoods.localSign(level, pos, random, false).defaultBlockState().setValue(StandingSignBlock.ROTATION, RotationSegment.convertToSegment(yawFromHome + 180.0F)), Block.UPDATE_ALL);
+            float towardsHome = Facing.yawTowards(home.getX() - pos.getX(), home.getZ() - pos.getZ());
+            level.setBlock(pos, SignWoods.localSign(level, pos, random, false).defaultBlockState().setValue(StandingSignBlock.ROTATION, RotationSegment.convertToSegment(towardsHome)), Block.UPDATE_ALL);
             if (level.getBlockEntity(pos) instanceof SignBlockEntity sign) {SignWriter.write(sign, level.registryAccess(), SignWriter.centered(pickMessage(player, random)), false);}
             return true;
         }
@@ -265,7 +264,7 @@ public class HauntEvents
         for (BlockPos pos : footprint)
         {
             BlockState ground = level.getBlockState(pos.below());
-            if (!ground.isFaceSturdy(level, pos.below(), Direction.UP) || !(ground.is(BlockTags.SUBSTRATE_OVERWORLD) || ground.is(BlockTags.SAND) || ground.is(BlockTags.BASE_STONE_OVERWORLD) || ground.is(Blocks.GRAVEL) || ground.is(Blocks.SNOW_BLOCK))) {return false;}
+            if (!ground.isFaceSturdy(level, pos.below(), Direction.UP) || !ground.is(HauntSpots.NATURAL_GROUND)) {return false;}
         }
         return build != Build.PILLAR || !HauntSpots.isNearRedstoneSensitiveBlock(level, base.above(2));
     }
@@ -365,7 +364,7 @@ public class HauntEvents
             if (distance < WALL_MIN_DISTANCE || !canWallUp(level, player, wall, forward)) {continue;}
             BlockState rock = getWallState(wall);
             putBack(level, wall, rock);
-            DelayedTasks.schedule(WALL_BLOCK_INTERVAL, () ->
+            DelayedTasks.schedule(player, WALL_BLOCK_INTERVAL, () ->
             {
                 if (!level.getBlockState(wall).equals(rock) || !level.getBlockState(wall.above()).isAir()) {return;}
                 putBack(level, wall.above(), rock);

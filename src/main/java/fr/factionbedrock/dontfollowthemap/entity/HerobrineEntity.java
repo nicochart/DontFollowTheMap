@@ -3,6 +3,8 @@ package fr.factionbedrock.dontfollowthemap.entity;
 import fr.factionbedrock.dontfollowthemap.haunting.HauntSpots;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
+import fr.factionbedrock.dontfollowthemap.util.HauntEffects;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import net.minecraft.util.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ColorParticleOption;
@@ -20,10 +22,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -204,12 +203,10 @@ public class HerobrineEntity extends Monster
 
     private void teleportWithSmoke(ServerLevel level, Vec3 destination)
     {
-        level.sendParticles(ParticleTypes.LARGE_SMOKE, this.getX(), this.getY() + 0.9D, this.getZ(), 20, 0.25D, 0.6D, 0.25D, 0.02D);
-        level.playSound(null, this.getX(), this.getY(), this.getZ(), DFTMSounds.BLINK, SoundSource.HOSTILE, 1.0F, 1.0F);
+        HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 1.0F, 1.0F);
         this.teleportTo(destination.x, destination.y, destination.z);
         this.getNavigation().stop();
-        level.sendParticles(ParticleTypes.LARGE_SMOKE, destination.x, destination.y + 0.9D, destination.z, 20, 0.25D, 0.6D, 0.25D, 0.02D);
-        level.playSound(null, destination.x, destination.y, destination.z, DFTMSounds.BLINK, SoundSource.HOSTILE, 1.0F, 1.2F);
+        HauntEffects.puffOfSmoke(level, destination, 20, DFTMSounds.BLINK, 1.0F, 1.2F);
     }
 
     //lightning
@@ -237,12 +234,8 @@ public class HerobrineEntity extends Monster
         if (this.strikeTimer-- > 0) {return;}
         for (Vec3 strike : this.pendingStrikes)
         {
-            LightningBolt lightning = EntityTypes.LIGHTNING_BOLT.create(level, EntitySpawnReason.EVENT);
-            if (lightning == null) {continue;}
-            //visual only: no fire, no charged creepers; the damage is dealt here
-            lightning.snapTo(strike);
-            lightning.setVisualOnly(true);
-            level.addFreshEntity(lightning);
+            //the damage is dealt here
+            HauntEffects.lightning(level, strike);
             for (LivingEntity victim : level.getEntitiesOfClass(LivingEntity.class, new net.minecraft.world.phys.AABB(strike, strike).inflate(STRIKE_RADIUS, 3.0D, STRIKE_RADIUS), entity -> entity != this && !(entity instanceof HerobrineApparitionEntity)))
             {
                 victim.hurtServer(level, this.damageSources().indirectMagic(this, this), STRIKE_DAMAGE);
@@ -269,7 +262,7 @@ public class HerobrineEntity extends Monster
     private List<ServerPlayer> getPlayersInArena(ServerLevel level)
     {
         Vec3 center = this.sealPos != null ? Vec3.atCenterOf(this.sealPos) : this.position();
-        return level.getPlayers(player -> player.isAlive() && !player.isSpectator() && !player.isCreative() && player.distanceToSqr(center) < Mth.square(SealEvents.ARENA_RADIUS + 16.0D));
+        return level.getPlayers(player -> Players.isHuntable(player) && player.distanceToSqr(center) < Mth.square(SealEvents.ARENA_RADIUS + 16.0D));
     }
 
     /** He fled: the seal stays open, he can be called back. */

@@ -228,24 +228,29 @@ public class SealShrines
         //as far as the loaded chunks tell: the others are only checked once loaded, when it is built
         if (isLivedIn(level, center)) {return false;}
 
-        //the place may never have been generated: the terrain generator tells what the ground will be like there
+        //the place may never have been generated: the terrain generator tells what the ground will be like there,
+        //one column at a time (about half a millisecond each): the place is turned down as soon as one of them tells it is wrong
         ChunkGenerator generator = level.getChunkSource().getGenerator();
         RandomState randomState = level.getChunkSource().randomState();
         int last = SealPiece.SIZE - 1, west = center.getX() - SealPiece.CENTER, north = center.getZ() - SealPiece.CENTER;
         int[][] samples = {{center.getX(), center.getZ()}, {west, north}, {west + last, north}, {west, north + last}, {west + last, north + last}};
+        int[] surfaces = new int[samples.length];
         int min = Integer.MAX_VALUE, max = Integer.MIN_VALUE;
-        for (int[] sample : samples)
+        for (int i = 0; i < samples.length; i++)
         {
-            int surface = generator.getFirstOccupiedHeight(sample[0], sample[1], Heightmap.Types.WORLD_SURFACE_WG, level, randomState);
-            int floor = generator.getFirstOccupiedHeight(sample[0], sample[1], Heightmap.Types.OCEAN_FLOOR_WG, level, randomState);
-            //water above the ground
-            if (surface != floor) {return false;}
-            min = Math.min(min, surface);
-            max = Math.max(max, surface);
+            surfaces[i] = generator.getFirstOccupiedHeight(samples[i][0], samples[i][1], Heightmap.Types.WORLD_SURFACE_WG, level, randomState);
             //the biome, once the height of the ground is known
-            if (sample == samples[0] && !level.getBiome(center.atY(surface)).is(BIOMES)) {return false;}
+            if (i == 0 && !level.getBiome(center.atY(surfaces[0])).is(BIOMES)) {return false;}
+            min = Math.min(min, surfaces[i]);
+            max = Math.max(max, surfaces[i]);
+            if (max - min > MAX_HEIGHT_DIFFERENCE) {return false;}
         }
-        return max - min <= MAX_HEIGHT_DIFFERENCE;
+        //no water above the ground
+        for (int i = 0; i < samples.length; i++)
+        {
+            if (generator.getFirstOccupiedHeight(samples[i][0], samples[i][1], Heightmap.Types.OCEAN_FLOOR_WG, level, randomState) != surfaces[i]) {return false;}
+        }
+        return true;
     }
 
     /** Players spent a long time around one of its loaded chunks (a home, a farm...). Chunks that aren't loaded are not looked at. */
@@ -423,7 +428,7 @@ public class SealShrines
                 if (!level.hasChunkAt(column)) {continue;}
                 BlockPos ground = column.atY(level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()) - 1);
                 BlockState top = level.getBlockState(ground);
-                if (!(top.is(BlockTags.SUBSTRATE_OVERWORLD) || top.is(BlockTags.SAND) || top.is(BlockTags.BASE_STONE_OVERWORLD) || top.is(Blocks.GRAVEL) || top.is(Blocks.SNOW_BLOCK))) {continue;}
+                if (!top.is(HauntSpots.NATURAL_GROUND)) {continue;}
                 tops.merge(top, 1, Integer::sum);
                 BlockState above = level.getBlockState(ground.above());
                 covers.merge(above.is(Blocks.SNOW) ? above : Blocks.AIR.defaultBlockState(), 1, Integer::sum);

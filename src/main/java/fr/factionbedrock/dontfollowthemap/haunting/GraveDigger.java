@@ -90,10 +90,7 @@ public class GraveDigger
         return !state.hasBlockEntity() && (state.is(BlockTags.SUBSTRATE_OVERWORLD) || state.is(Blocks.SNOW_BLOCK));
     }
 
-    private static boolean isNaturalGround(BlockState state)
-    {
-        return !state.hasBlockEntity() && (isSoftGround(state) || state.is(BlockTags.SAND) || state.is(Blocks.GRAVEL) || state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(Blocks.CLAY));
-    }
+    private static boolean isNaturalGround(BlockState state) {return !state.hasBlockEntity() && state.is(HauntSpots.NATURAL_GROUND);}
 
     private static boolean isClosedWall(ServerLevel level, BlockPos pos)
     {

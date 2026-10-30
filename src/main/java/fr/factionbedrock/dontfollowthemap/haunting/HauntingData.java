@@ -8,7 +8,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Per player haunting progression, saved with the player and kept on death.
@@ -28,11 +30,8 @@ public class HauntingData
             Codec.LONG.optionalFieldOf("haunt_ticks", 0L).forGetter(data -> data.hauntTicks),
             Codec.LONG.optionalFieldOf("next_event", 0L).forGetter(data -> data.nextEventTime),
             Codec.LONG.optionalFieldOf("next_whisper", 0L).forGetter(data -> data.nextWhisperTime),
-            Codec.LONG.optionalFieldOf("last_kill_apparition", Long.MIN_VALUE).forGetter(data -> data.lastKillApparition),
-            Codec.LONG.optionalFieldOf("last_bed_scare", Long.MIN_VALUE).forGetter(data -> data.lastBedScare),
-            Codec.LONG.optionalFieldOf("last_grave", Long.MIN_VALUE).forGetter(data -> data.lastGrave),
-            Codec.LONG.optionalFieldOf("last_theft", Long.MIN_VALUE).forGetter(data -> data.lastTheft),
-            Codec.LONG.optionalFieldOf("last_tunnel", Long.MIN_VALUE).forGetter(data -> data.lastTunnel),
+            //lenient: a reaction removed by an update only forgets the cooldowns, not the rest
+            Codec.unboundedMap(Reaction.CODEC, Codec.LONG).lenientOptionalFieldOf("last_reactions", Map.of()).forGetter(data -> data.lastReactions),
             Codec.LONG.optionalFieldOf("map_delivered", -1L).forGetter(data -> data.mapDeliveredAt),
             Codec.LONG.optionalFieldOf("peace_until", 0L).forGetter(data -> data.peaceUntil),
             Codec.INT.optionalFieldOf("sightings", 0).forGetter(data -> data.sightings),
@@ -45,11 +44,8 @@ public class HauntingData
     public long hauntTicks;
     public long nextEventTime;
     public long nextWhisperTime;
-    public long lastKillApparition;
-    public long lastBedScare;
-    public long lastGrave;
-    public long lastTheft;
-    public long lastTunnel;
+    /** When each reaction last happened to this player. */
+    private final Map<Reaction, Long> lastReactions = new EnumMap<>(Reaction.class);
     public long mapDeliveredAt;
     public long peaceUntil;
     public int sightings;
@@ -60,18 +56,14 @@ public class HauntingData
     public int worldDefeats;
     public final List<ItemStack> stolen;
 
-    public HauntingData() {this(0L, 0L, 0L, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, -1L, 0L, 0, SEALED, 0, 0, List.of());}
+    public HauntingData() {this(0L, 0L, 0L, Map.of(), -1L, 0L, 0, SEALED, 0, 0, List.of());}
 
-    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, long lastKillApparition, long lastBedScare, long lastGrave, long lastTheft, long lastTunnel, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, int worldDefeats, List<ItemStack> stolen)
+    private HauntingData(long hauntTicks, long nextEventTime, long nextWhisperTime, Map<Reaction, Long> lastReactions, long mapDeliveredAt, long peaceUntil, int sightings, int sealState, int defeats, int worldDefeats, List<ItemStack> stolen)
     {
         this.hauntTicks = hauntTicks;
         this.nextEventTime = nextEventTime;
         this.nextWhisperTime = nextWhisperTime;
-        this.lastKillApparition = lastKillApparition;
-        this.lastBedScare = lastBedScare;
-        this.lastGrave = lastGrave;
-        this.lastTheft = lastTheft;
-        this.lastTunnel = lastTunnel;
+        this.lastReactions.putAll(lastReactions);
         this.mapDeliveredAt = mapDeliveredAt;
         this.peaceUntil = peaceUntil;
         this.sightings = sightings;
@@ -112,7 +104,15 @@ public class HauntingData
         if (stage < HAUNTED) {this.mapDeliveredAt = -1L;}
     }
 
-    public boolean isOnCooldown(long lastTime, long cooldown, long now) {return lastTime != Long.MIN_VALUE && now - lastTime < cooldown;}
+    /** Whether this reaction happened to the player too recently to happen again. */
+    public boolean isOnCooldown(Reaction reaction, long now)
+    {
+        Long last = this.lastReactions.get(reaction);
+        return last != null && now - last < reaction.cooldown();
+    }
+
+    /** This reaction happened now: it can't happen again before its cooldown is over. */
+    public void startCooldown(Reaction reaction, long now) {this.lastReactions.put(reaction, now);}
 
     public boolean hasMapBeenDelivered() {return this.mapDeliveredAt >= 0L;}
 

@@ -5,7 +5,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.fog.FogData;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.Entity;
 
 /**
  * While Herobrine watches the player from afar (a sighting) or stalks them, their fog slowly thickens up to the boss fight one,
@@ -31,18 +30,15 @@ public class HerobrineFog
         }
         if (minecraft.isPaused()) {return;}
         previousAmount = amount;
-        amount = isWatched(minecraft, minecraft.player) ? Math.min(1.0F, amount + 1.0F / THICKENING_TICKS) : Math.max(0.0F, amount - 1.0F / LIFTING_TICKS);
+        amount = isWatched(minecraft.player) ? Math.min(1.0F, amount + 1.0F / THICKENING_TICKS) : Math.max(0.0F, amount - 1.0F / LIFTING_TICKS);
     }
 
     /** How thick the fog is, from 0 (none of his) to 1 (the boss fight one). */
     public static float amount() {return amount;}
 
-    private static boolean isWatched(Minecraft minecraft, LocalPlayer player)
+    private static boolean isWatched(LocalPlayer player)
     {
-        for (Entity entity : minecraft.level.entitiesForRendering())
-        {
-            if (entity instanceof HerobrineApparitionEntity apparition && apparition.isFogging(player)) {return true;}
-        }
+        for (HerobrineApparitionEntity apparition : HerobrineAround.apparitions()) {if (apparition.isFogging(player)) {return true;}}
         return false;
     }
 

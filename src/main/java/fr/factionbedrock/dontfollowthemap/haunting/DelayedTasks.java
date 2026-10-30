@@ -1,6 +1,7 @@
 package fr.factionbedrock.dontfollowthemap.haunting;
 
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,9 @@ public class DelayedTasks
     private static long tick;
 
     public static void schedule(int delayTicks, Runnable action) {TASKS.add(new Task(tick + Math.max(1, delayTicks), action));}
+
+    /** The same for something done to this player: dropped if they are gone by then (logged out, or respawned as a new player). */
+    public static void schedule(ServerPlayer player, int delayTicks, Runnable action) {schedule(delayTicks, () -> {if (!player.isRemoved()) {action.run();}});}
 
     public static void tick(MinecraftServer server)
     {

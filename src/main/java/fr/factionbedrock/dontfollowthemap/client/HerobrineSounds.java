@@ -5,7 +5,6 @@ import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.haunting.SealEvents;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
@@ -13,7 +12,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,9 +62,9 @@ public class HerobrineSounds
         //the sounds are paused too
         if (minecraft.isPaused()) {return;}
         if (summoningTicks > 0) {summoningTicks--;}
-        boolean fight = isNearTheFight(minecraft.level, player);
+        boolean fight = isNearTheFight(player);
         FIGHT_MUSIC.tick(minecraft, fight);
-        presence = fight ? 0.0F : presence(minecraft.level, player);
+        presence = fight ? 0.0F : presence(player);
         AMBIENCE.tick(minecraft, presence > 0.0F);
     }
 
@@ -85,12 +83,12 @@ public class HerobrineSounds
     }
 
     /** Herobrine on his way, or a living Herobrine around: the fight is on (his death fades the music out). */
-    private static boolean isNearTheFight(ClientLevel level, LocalPlayer player)
+    private static boolean isNearTheFight(LocalPlayer player)
     {
         if (summoningTicks > 0 && summoningSeal != null && player.distanceToSqr(Vec3.atCenterOf(summoningSeal)) < FIGHT_RANGE * FIGHT_RANGE) {return true;}
-        for (Entity entity : level.entitiesForRendering())
+        for (HerobrineEntity herobrine : HerobrineAround.herobrines())
         {
-            if (entity instanceof HerobrineEntity herobrine && herobrine.isAlive() && herobrine.distanceToSqr(player) < FIGHT_RANGE * FIGHT_RANGE) {return true;}
+            if (herobrine.isAlive() && herobrine.distanceToSqr(player) < FIGHT_RANGE * FIGHT_RANGE) {return true;}
         }
         return false;
     }
@@ -99,13 +97,13 @@ public class HerobrineSounds
      * Close to a Herobrine who watches (a sighting, a stalk...), seen or not; or looking at him from further away, with nothing in between.
      * Fainter at the edge: at the end of the ranges, or in the corner of the eye.
      */
-    private static float presence(ClientLevel level, LocalPlayer player)
+    private static float presence(LocalPlayer player)
     {
         Vec3 eyes = player.getEyePosition(), view = player.getViewVector(1.0F);
         float strongest = 0.0F;
-        for (Entity entity : level.entitiesForRendering())
+        for (HerobrineApparitionEntity apparition : HerobrineAround.apparitions())
         {
-            if (!(entity instanceof HerobrineApparitionEntity apparition) || !apparition.isWatching()) {continue;}
+            if (!apparition.isWatching()) {continue;}
             double distance = Math.sqrt(apparition.distanceToSqr(player));
             if (distance < NEAR_RANGE) {strongest = Math.max(strongest, fade(distance, FULL_NEAR_RANGE, NEAR_RANGE, EDGE_PRESENCE));}
             if (distance > LOOKING_RANGE) {continue;}

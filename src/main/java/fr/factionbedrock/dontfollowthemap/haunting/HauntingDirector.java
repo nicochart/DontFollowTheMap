@@ -11,6 +11,7 @@ import fr.factionbedrock.dontfollowthemap.item.SealMaps;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMAttachments;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.util.Players;
 import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.entity.event.v1.EntitySleepEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -51,11 +52,6 @@ public class HauntingDirector
 {
     private static final int UPDATE_INTERVAL = 20;
     private static final long RETRY_DELAY = 20L * 30L;
-    private static final long KILL_APPARITION_COOLDOWN = 20L * 60L * 4L;
-    private static final long BED_SCARE_COOLDOWN = HauntingData.DAY / 2L;
-    private static final long THEFT_COOLDOWN = 20L * 60L * 6L;
-    private static final long GRAVE_COOLDOWN = HauntingData.DAY * 4L;
-    private static final long TUNNEL_COOLDOWN = HauntingData.DAY;
     private static final long MAP_REPLACEMENT_DELAY = HauntingData.DAY * 2L;
 
     public enum Event {SIGHTING, STALK, TORCHES, SIGN, BUILD, POSSESSION, IMITATOR}
@@ -73,7 +69,11 @@ public class HauntingDirector
             TunnelWatcher.clear();
             HauntedSync.clear();
         });
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> HauntedSync.forget(handler.getPlayer()));
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+        {
+            HauntedSync.forget(handler.getPlayer());
+            TunnelWatcher.forget(handler.getPlayer());
+        });
         ServerLivingEntityEvents.AFTER_DEATH.register(HauntingDirector::onDeath);
         EntitySleepEvents.START_SLEEPING.register(HauntingDirector::onStartSleeping);
         EntitySleepEvents.MODIFY_WAKE_UP_POSITION.register((entity, sleepingPos, bedState, wakeUpPos) -> entity instanceof ServerPlayer player ? onWakeUp(player, sleepingPos, wakeUpPos) : wakeUpPos);
@@ -87,7 +87,7 @@ public class HauntingDirector
     public static boolean canBeHaunted(ServerPlayer player)
     {
         DFTMConfig config = DFTMConfig.get();
-        return config.enabled && player.isAlive() && !player.isSpectator() && (config.hauntCreativePlayers || !player.isCreative());
+        return config.enabled && Players.isInTheGame(player) && (config.hauntCreativePlayers || !player.isCreative());
     }
 
     private static void onServerTick(MinecraftServer server)
@@ -217,32 +217,35 @@ public class HauntingDirector
         };
     }
 
+    /**
+     * Whether this reaction to what the player does happens now: its option is on, they can be haunted and are far enough in,
+     * it isn't on cooldown, and its chance says so (unless it is certain). Once it happened, its cooldown starts (HauntingData.startCooldown).
+     */
+    private static boolean rolls(ServerPlayer player, Reaction reaction, long now, boolean certain)
+    {
+        if (!reaction.isEnabled() || !canBeHaunted(player)) {return false;}
+        HauntingData data = HauntingData.get(player);
+        int stage = data.stage(now);
+        if (stage < reaction.minStage() || data.isOnCooldown(reaction, now)) {return false;}
+        return certain || player.getRandom().nextDouble() < reaction.chance(stage);
+    }
+
     private static void onDeath(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source)
     {
-        if (!(source.getEntity() instanceof ServerPlayer player) || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity || entity instanceof ImitatorEntity) {return;}
-        DFTMConfig config = DFTMConfig.get();
-        if (!config.killApparitions || !canBeHaunted(player) || player.level() != entity.level()) {return;}
-        HauntingData data = HauntingData.get(player);
+        if (!(source.getEntity() instanceof ServerPlayer player) || player.level() != entity.level() || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity || entity instanceof ImitatorEntity) {return;}
         long now = now(player.level().getServer());
-        int stage = data.stage(now);
-        if (stage == HauntingData.QUIET || data.isOnCooldown(data.lastKillApparition, KILL_APPARITION_COOLDOWN, now)) {return;}
-        double chance = config.killApparitionChance * (stage >= HauntingData.HAUNTED ? 1.5D : 1.0D);
-        if (entity instanceof PossessedAnimal) {chance = 1.0D;}
-        if (player.getRandom().nextDouble() < chance && HauntEvents.killApparition(player, entity.position())) {data.lastKillApparition = now;}
+        //an animal he had taken over: he is there, always
+        if (rolls(player, Reaction.KILL_APPARITION, now, entity instanceof PossessedAnimal) && HauntEvents.killApparition(player, entity.position())) {HauntingData.get(player).startCooldown(Reaction.KILL_APPARITION, now);}
     }
 
     private static void onStartSleeping(LivingEntity entity, BlockPos bedPos)
     {
-        if (!(entity instanceof ServerPlayer player) || !DFTMConfig.get().bedScares || !canBeHaunted(player)) {return;}
-        HauntingData data = HauntingData.get(player);
+        if (!(entity instanceof ServerPlayer player)) {return;}
         long now = now(player.level().getServer());
-        int stage = data.stage(now);
-        if (stage == HauntingData.QUIET || data.isOnCooldown(data.lastBedScare, BED_SCARE_COOLDOWN, now)) {return;}
-        double chance = DFTMConfig.get().bedScareChance * (stage >= HauntingData.HAUNTED ? 1.5D : 1.0D);
-        if (player.getRandom().nextDouble() >= chance) {return;}
-        data.lastBedScare = now;
+        if (!rolls(player, Reaction.BED_SCARE, now, false)) {return;}
+        HauntingData.get(player).startCooldown(Reaction.BED_SCARE, now);
         //let the screen fade to black first
-        DelayedTasks.schedule(Mth.nextInt(player.getRandom(), 30, 55), () ->
+        DelayedTasks.schedule(player, Mth.nextInt(player.getRandom(), 30, 55), () ->
         {
             if (player.isSleeping() && player.getSleepingPos().map(bedPos::equals).orElse(false)) {HauntEvents.bedScare(player, bedPos);}
         });
@@ -254,18 +257,16 @@ public class HauntingDirector
         if (!player.isSleepingLongEnough() || !player.level().isBrightOutside() || !canBeHaunted(player)) {return wakeUpPos;}
         HauntingData data = HauntingData.get(player);
         long now = now(player.level().getServer());
-        int stage = data.stage(now);
-        if (stage >= HauntingData.HAUNTED && isMapDue(player, data, now))
+        if (data.stage(now) >= HauntingData.HAUNTED && isMapDue(player, data, now))
         {
-            DelayedTasks.schedule(20, () -> {if (player.isAlive()) {SealEvents.slipMapIntoPocket(player);}});
+            DelayedTasks.schedule(player, 20, () -> {if (player.isAlive()) {SealEvents.slipMapIntoPocket(player);}});
             return wakeUpPos;
         }
-        DFTMConfig config = DFTMConfig.get();
-        if (!config.graves || stage < HauntingData.HAUNTED || data.isOnCooldown(data.lastGrave, GRAVE_COOLDOWN, now) || player.getRandom().nextDouble() >= config.graveChance) {return wakeUpPos;}
+        if (!rolls(player, Reaction.GRAVE, now, false)) {return wakeUpPos;}
         BlockPos grave = GraveDigger.dig(player.level(), bedPos, player);
         if (grave == null) {return wakeUpPos;}
-        data.lastGrave = now;
-        DelayedTasks.schedule(2, () ->
+        data.startCooldown(Reaction.GRAVE, now);
+        DelayedTasks.schedule(player, 2, () ->
         {
             player.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, 60));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(), DFTMSounds.GRAVE_WAKE, SoundSource.HOSTILE, 1.0F, 1.0F);
@@ -292,36 +293,27 @@ public class HauntingDirector
     /** Digging a straight tunnel: once in a while, the tunnel is walled up behind the player, and Herobrine waits behind the wall. */
     private static boolean wallUpTunnel(ServerPlayer player, long now)
     {
-        DFTMConfig config = DFTMConfig.get();
-        if (!config.tunnels || !canBeHaunted(player)) {return false;}
-        HauntingData data = HauntingData.get(player);
-        if (data.stage(now) < HauntingData.HAUNTED || data.isOnCooldown(data.lastTunnel, TUNNEL_COOLDOWN, now)) {return false;}
+        //the chance first: it is cheaper than looking for a tunnel in what they broke
+        if (!rolls(player, Reaction.TUNNEL, now, false)) {return false;}
         Direction forward = TunnelWatcher.diggingDirection(player, now);
-        if (forward == null || player.getRandom().nextDouble() >= config.tunnelChance || !HauntEvents.wallUpTunnel(player, forward)) {return false;}
-        data.lastTunnel = now;
+        if (forward == null || !HauntEvents.wallUpTunnel(player, forward)) {return false;}
+        HauntingData.get(player).startCooldown(Reaction.TUNNEL, now);
         return true;
     }
 
     private static void steal(ServerPlayer player, BlockPos pos)
     {
         boolean forced = FORCED_THEFTS.contains(player.getUUID());
-        if (!forced)
-        {
-            DFTMConfig config = DFTMConfig.get();
-            if (!config.thief || player.isCreative() || !canBeHaunted(player) || player.level().dimension() != Level.OVERWORLD) {return;}
-            HauntingData data = HauntingData.get(player);
-            long now = now(player.level().getServer());
-            if (data.stage(now) < HauntingData.HAUNTED || data.isOnCooldown(data.lastTheft, THEFT_COOLDOWN, now) || player.getRandom().nextDouble() >= config.thiefChance) {return;}
-        }
+        if (!forced && (player.isCreative() || player.level().dimension() != Level.OVERWORLD || !rolls(player, Reaction.THEFT, now(player.level().getServer()), false))) {return;}
         //the drops appear during the break: look for them on the next tick
-        DelayedTasks.schedule(1, () ->
+        DelayedTasks.schedule(player, 1, () ->
         {
             //a forced theft happens once, even if several blocks were broken at the same time
             if (forced && !FORCED_THEFTS.contains(player.getUUID())) {return;}
             //nothing dropped (creative, nothing to drop...) or nowhere to come from: a forced theft waits for the next block
             if (UnseenEntity.comeForDrops(player, pos))
             {
-                HauntingData.get(player).lastTheft = now(player.level().getServer());
+                HauntingData.get(player).startCooldown(Reaction.THEFT, now(player.level().getServer()));
                 FORCED_THEFTS.remove(player.getUUID());
             }
         });

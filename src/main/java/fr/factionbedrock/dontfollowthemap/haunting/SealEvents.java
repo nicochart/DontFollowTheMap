@@ -10,6 +10,7 @@ import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMItems;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import fr.factionbedrock.dontfollowthemap.util.DFTMAdvancements;
+import fr.factionbedrock.dontfollowthemap.util.HauntEffects;
 import fr.factionbedrock.dontfollowthemap.world.SealShrines;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
@@ -22,8 +23,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntitySpawnReason;
-import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -112,13 +111,7 @@ public class SealEvents
         BlockState seal = level.getBlockState(sealPos);
         if (!seal.is(DFTMBlocks.SEAL) || seal.getValue(SealBlock.STATE) != SealBlock.State.OPEN || findHerobrine(level, sealPos) != null) {return;}
         Vec3 center = Vec3.atBottomCenterOf(sealPos.above());
-        LightningBolt lightning = EntityTypes.LIGHTNING_BOLT.create(level, EntitySpawnReason.EVENT);
-        if (lightning != null)
-        {
-            lightning.snapTo(center);
-            lightning.setVisualOnly(true);
-            level.addFreshEntity(lightning);
-        }
+        HauntEffects.lightning(level, center);
         HerobrineEntity herobrine = DFTMEntities.HEROBRINE.create(level, EntitySpawnReason.EVENT);
         if (herobrine == null) {return;}
         herobrine.snapTo(center.x, center.y, center.z, level.getRandom().nextFloat() * 360.0F, 0.0F);
