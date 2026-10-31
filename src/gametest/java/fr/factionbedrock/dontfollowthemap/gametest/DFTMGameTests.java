@@ -1418,6 +1418,72 @@ public class DFTMGameTests
                 .thenSucceed();
     }
 
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 200, skyAccess = true, padding = 16)
+    public void stalkerInAGapOfAPillarGetsOutAndFloatsUpBesideIt(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        //a pillar with a gap 2 blocks high (left when its lower part was mined): the player on top, out of reach from the gap
+        pillar(helper, 4, 4, 3);
+        for (int y = 6; y <= 12; y++) {helper.setBlock(4, y, 4, Blocks.COBBLESTONE);}
+        BlockPos top = helper.absolutePos(new BlockPos(4, 12, 4)), aboveTheGap = helper.absolutePos(new BlockPos(4, 6, 4));
+        ServerPlayer player = survivalPlayer(helper, 4, 13, 4, 180.0F);
+        //the stalker right under what the player stands on, in the gap
+        HerobrineApparitionEntity stalker = HerobrineApparitionEntity.spawn(level, helper.absoluteVec(new Vec3(4.5D, 4.0D, 4.5D)), player, HerobrineApparitionEntity.Mode.STALK, HerobrineApparitionEntity.STALK_LIFETIME);
+        stalker.setFogging(player);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(level.getBlockState(top).isAir(), "Out of the gap and up beside the pillar, it must mine what the player stands on"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(level.getBlockState(aboveTheGap).is(Blocks.COBBLESTONE), "It must not dig up into the player's pillar");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 400, skyAccess = true, padding = 16)
+    public void stalkerMinesOnlyWhatAPlayerBuildingUpStandsOn(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -6, 13, Blocks.STONE);
+        removeBarriers(helper);
+        int[] top = {5};
+        pillar(helper, 4, 4, top[0]);
+        ServerPlayer player = survivalPlayer(helper, 4, top[0] + 1, 4, 180.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 6.5D, 4.5D);
+        //once it mines what they stand on, the player builds up, a block every 4 ticks (faster than it mines), 6 blocks high
+        long[] start = {-1L};
+        boolean[] gap = {false};
+        helper.onEachTick(() ->
+        {
+            if (start[0] < 0L && stalker.getMainHandItem().is(Items.DIAMOND_PICKAXE)) {start[0] = helper.getTick();}
+            if (start[0] >= 0L && top[0] < 11 && (helper.getTick() - start[0]) % 4 == 3)
+            {
+                place(helper, 4, ++top[0], 4, Blocks.COBBLESTONE);
+                teleport(helper, player, 4, top[0] + 1, 4, 180.0F);
+            }
+            //a block mined under one still standing: a gap
+            boolean air = false;
+            for (int y = 1; y <= top[0]; y++)
+            {
+                boolean solid = level.getBlockState(helper.absolutePos(new BlockPos(4, y, 4))).is(Blocks.COBBLESTONE);
+                gap[0] |= air && solid;
+                air |= !solid;
+            }
+        });
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(top[0] == 11 && level.isEmptyBlock(helper.absolutePos(new BlockPos(4, 11, 4))), "Up on what they built, the player must have what they stand on mined"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(!gap[0], "Only what the player stands on must be mined, not the block they built over (it would leave a gap in their pillar)");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
     @GameTest(environment = SURVIVAL_STILL, maxTicks = 400, skyAccess = true, padding = 16)
     public void floatingStalkerMinesTheSnowLayerItRunsInto(GameTestHelper helper)
     {

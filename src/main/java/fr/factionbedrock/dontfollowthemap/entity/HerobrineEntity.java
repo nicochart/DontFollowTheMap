@@ -44,6 +44,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
@@ -288,7 +290,8 @@ public class HerobrineEntity extends Monster
         for (Vec3 candidate : candidates)
         {
             BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(candidate.x), Mth.floor(candidate.z), Mth.floor(candidate.y) + 2, Mth.floor(candidate.y) - 2);
-            if (ground == null || ground.distToCenterSqr(target.position()) < 1.5D) {continue;}
+            //where he sees them (not in a gap under what they stand on, nor behind a wall)
+            if (ground == null || ground.distToCenterSqr(target.position()) < 1.5D || !HauntSpots.canSee(level, Vec3.atBottomCenterOf(ground).add(0.0D, this.getEyeHeight(), 0.0D), target.getEyePosition())) {continue;}
             this.teleportWithSmoke(level, Vec3.atBottomCenterOf(ground));
             this.getLookControl().setLookAt(target);
             return true;
@@ -431,6 +434,8 @@ public class HerobrineEntity extends Monster
 
     //no fall hurts him: he drops from anywhere to get to his target
     @Override public int getMaxFallDistance() {return 32;}
+    //cobwebs don't hold him back (as they don't hold spiders back: there is no tag for it)
+    @Override public void makeStuckInBlock(BlockState state, Vec3 speedMultiplier) {if (!state.is(Blocks.COBWEB)) {super.makeStuckInBlock(state, speedMultiplier);}}
     @Override public boolean isNoGravity() {return this.isDeadOrDying() || super.isNoGravity();}
     @Override public boolean causeFallDamage(double fallDistance, float damageModifier, DamageSource damageSource) {return false;}
     @Override public boolean canBeAffected(MobEffectInstance effect) {return false;}

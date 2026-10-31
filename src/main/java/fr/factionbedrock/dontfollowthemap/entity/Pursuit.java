@@ -7,6 +7,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
@@ -38,7 +39,7 @@ import java.util.function.Predicate;
  * How Herobrine (his apparitions, himself) and the imitator get to a player they can't walk to (no complete path for 2 seconds).
  * A pickaxe in hand, they mine what stands in between, the block cracking as under a player's pickaxe, only as far as needed:
  * once there is a hole they can hit them through, from as far as a player could, they do. A player standing high (a pillar, a ledge)
- * gets what they stand on mined from under their feet as soon as it is within a player's reach; until it is, Herobrine floats up
+ * gets what they stand on mined from under their feet as soon as it is within a player's reach; until it is, Herobrine floats up beside their pillar
  * and the imitator builds itself a pillar. Herobrine also floats over what can't be walked or dug (a ravine, a lava lake), and lands
  * as soon as he can walk on. Floating, he can't step over anything, not even a snow layer or a carpet: once he stops getting any closer,
  * he mines what he runs into. With no way at all, it is stuck: its owner decides what then.
@@ -58,6 +59,8 @@ public class Pursuit
     private static final double LANDING_DISTANCE = 2.5D;
     /** Floating without getting any closer for this long, it mines what it runs into. */
     private static final int BLOCKED_TICKS = 10;
+    /** Floating up to a target standing high, it keeps this far from the middle of their pillar (its edge 0.2 block from it). */
+    private static final double BESIDE_COLUMN = 1.0D;
     /** Without mining, building or getting any closer for this long, there is no way. */
     private static final int STUCK_TICKS = 20 * 5;
 
@@ -115,7 +118,8 @@ public class Pursuit
     public boolean act(ServerLevel level, LivingEntity target)
     {
         //standing high, they are brought down first, as soon as what they stand on can be reached (even if they could be hit from below)
-        BlockPos support = this.isAbove(target) ? support(level, target) : null;
+        boolean high = this.isAbove(target);
+        BlockPos support = high ? support(level, target) : null;
         boolean bringDown = support != null && canMine(level, support) && this.isInReach(support);
         if (!bringDown && (this.canHit.test(target) || this.canHitThrough(target)))
         {
@@ -124,9 +128,10 @@ public class Pursuit
             this.idleTicks = 0;
             return false;
         }
+        Vec3 aim = support != null ? this.besideColumn(level, target, support) : target.position();
         //it mines standing still: floating, or on its feet (not halfway through a jump while building up)
-        BlockPos block = this.rise == Rise.FLOAT || this.mob.onGround() ? this.blockToMine(level, target, support != null, bringDown ? support : null) : null;
-        if (block == null && this.floating && this.idleTicks >= BLOCKED_TICKS) {block = this.obstacle(level, target, support);}
+        BlockPos block = this.rise == Rise.FLOAT || this.mob.onGround() ? this.blockToMine(level, target, high, support, bringDown) : null;
+        if (block == null && this.floating && this.idleTicks >= BLOCKED_TICKS) {block = this.obstacle(level, aim, support);}
         if (block != null)
         {
             this.mine(level, block);
@@ -134,8 +139,8 @@ public class Pursuit
         }
         this.stopMining(level);
         this.idleTicks++;
-        if (this.isAbove(target)) {this.rise(level, target);}
-        else if (this.floating) {this.floatTowards(level, target);}
+        if (high) {this.rise(level, target, support, aim);}
+        else if (this.floating) {this.floatTowards(level, target, aim);}
         else {this.getCloser(level, target);}
         double distance = this.mob.distanceTo(target);
         if (distance < this.closest - 0.5D)
@@ -160,13 +165,14 @@ public class Pursuit
 
     //mining
     /**
-     * The block it started (a player finishes it too, as long as they can reach it), what a target standing high stands on,
-     * or the block in the way (not when they stand high: it would only dig into their pillar, they wouldn't come down).
+     * What a target standing high stands on, as soon as it can be reached. Otherwise the block it started (a player finishes it too,
+     * as long as they can reach it), unless it is in their pillar, under what they stand on: they built up over it, finishing it would only
+     * leave a gap. Otherwise the block in the way (not when they stand high: it would only dig into their pillar, they wouldn't come down).
      */
-    @Nullable private BlockPos blockToMine(ServerLevel level, LivingEntity target, boolean standingHigh, @Nullable BlockPos support)
+    @Nullable private BlockPos blockToMine(ServerLevel level, LivingEntity target, boolean standingHigh, @Nullable BlockPos support, boolean bringDown)
     {
-        if (this.mining != null && canMine(level, this.mining) && this.isInReach(this.mining)) {return this.mining;}
-        if (support != null) {return support;}
+        if (bringDown) {return support;}
+        if (this.mining != null && canMine(level, this.mining) && this.isInReach(this.mining) && !isUnder(this.mining, support)) {return this.mining;}
         if (standingHigh) {return null;}
         BlockPos inTheWay = this.blockInTheWay(level, target);
         return inTheWay != null && canMine(level, inTheWay) && this.isInReach(inTheWay) ? inTheWay : null;
@@ -220,24 +226,24 @@ public class Pursuit
     private boolean isInReach(BlockPos pos) {return new AABB(pos).distanceToSqr(this.mob.getEyePosition()) <= MINING_REACH * MINING_REACH;}
 
     /**
-     * Floating, what it runs into on its way to the target: the block most in its way. Not the ground under it (unless the target is down there),
+     * Floating, what it runs into on its way to where it aims: the block most in its way. Not the ground under it (unless it aims lower),
      * nor the pillar of a target standing high (it gets them down from the top).
      */
-    @Nullable private BlockPos obstacle(ServerLevel level, LivingEntity target, @Nullable BlockPos support)
+    @Nullable private BlockPos obstacle(ServerLevel level, Vec3 aim, @Nullable BlockPos support)
     {
-        Vec3 way = target.position().subtract(this.mob.position());
+        Vec3 way = aim.subtract(this.mob.position());
         if (way.lengthSqr() < 1.0E-4D) {return null;}
         Vec3 direction = way.normalize();
         AABB ahead = this.mob.getBoundingBox().move(direction.scale(0.25D));
         VoxelShape aheadShape = Shapes.create(ahead);
         Vec3 center = this.mob.getBoundingBox().getCenter();
-        boolean targetBelow = target.getY() < this.mob.getY() - 1.0D;
+        boolean targetBelow = aim.y < this.mob.getY() - 1.0D;
         BlockPos obstacle = null;
         double mostInTheWay = 0.0D;
         for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(ahead.minX, ahead.minY, ahead.minZ), BlockPos.containing(ahead.maxX, ahead.maxY, ahead.maxZ)))
         {
             if (pos.getY() < this.mob.getBlockY() && !targetBelow) {continue;}
-            if (support != null && pos.getX() == support.getX() && pos.getZ() == support.getZ() && pos.getY() < support.getY()) {continue;}
+            if (isUnder(pos, support)) {continue;}
             VoxelShape shape = level.getBlockState(pos).getCollisionShape(level, pos);
             if (shape.isEmpty() || !Shapes.joinIsNotEmpty(shape.move(pos), aheadShape, BooleanOp.AND) || !canMine(level, pos)) {continue;}
             double inTheWay = Vec3.atCenterOf(pos).subtract(center).dot(direction);
@@ -257,12 +263,24 @@ public class Pursuit
         return hit.getType() == HitResult.Type.BLOCK ? hit.getBlockPos() : null;
     }
 
-    /** What a target standing high stands on (searched down their column when they are not on the ground: jumping...). */
+    /**
+     * What a target standing high stands on, or will land on when they are not on the ground (jumping, building up): the highest block
+     * under their feet, down to 3 blocks, the one closest to their middle (on the edge of a pillar, their middle may be over the void).
+     */
     @Nullable private static BlockPos support(ServerLevel level, LivingEntity target)
     {
         if (target.onGround()) {return target.getOnPos();}
-        BlockPos.MutableBlockPos pos = BlockPos.containing(target.getX(), target.getY() - 0.01D, target.getZ()).mutable();
-        for (int i = 0; i < 3; i++, pos.move(Direction.DOWN)) {if (!isOpen(level, pos)) {return pos.immutable();}}
+        AABB feet = target.getBoundingBox();
+        int top = Mth.floor(feet.minY - 0.01D);
+        for (int y = top; y > top - 3; y--)
+        {
+            BlockPos closest = null;
+            for (BlockPos pos : BlockPos.betweenClosed(Mth.floor(feet.minX), y, Mth.floor(feet.minZ), Mth.floor(feet.maxX - 1.0E-7D), y, Mth.floor(feet.maxZ - 1.0E-7D)))
+            {
+                if (!isOpen(level, pos) && (closest == null || Vec3.atCenterOf(pos).distanceToSqr(target.position()) < Vec3.atCenterOf(closest).distanceToSqr(target.position()))) {closest = pos.immutable();}
+            }
+            if (closest != null) {return closest;}
+        }
         return null;
     }
 
@@ -275,18 +293,23 @@ public class Pursuit
 
     private static boolean isOpen(ServerLevel level, BlockPos pos) {return level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();}
 
+    /** Whether that block is in the pillar of a target standing high, under what they stand on. */
+    private static boolean isUnder(BlockPos pos, @Nullable BlockPos support) {return support != null && pos.getX() == support.getX() && pos.getZ() == support.getZ() && pos.getY() < support.getY();}
+
     //getting there
     private boolean isAbove(LivingEntity target) {return target.getY() - this.mob.getY() >= ABOVE;}
 
-    /** The target stands too high for what they stand on to be mined: Herobrine floats up towards them, the imitator builds itself a pillar next to theirs. */
-    private void rise(ServerLevel level, LivingEntity target)
+    /**
+     * The target stands too high for what they stand on to be mined: Herobrine floats up towards them (aim: beside their pillar),
+     * the imitator builds itself a pillar next to theirs.
+     */
+    private void rise(ServerLevel level, LivingEntity target, @Nullable BlockPos support, Vec3 aim)
     {
         if (this.rise == Rise.FLOAT)
         {
-            this.floatTowards(level, target);
+            this.floatTowards(level, target, aim);
             return;
         }
-        BlockPos support = support(level, target);
         Vec3 column = support != null ? Vec3.atBottomCenterOf(support) : target.position();
         //from too far, building up wouldn't bring it within reach: to the foot of their pillar first
         //(not towards the target: anything it stands on up here would look closer to them)
@@ -343,8 +366,30 @@ public class Pursuit
         }
     }
 
-    /** Herobrine only: straight towards the target, through the air; it lands back on the ground close to them, or once it can walk on. */
-    private void floatTowards(ServerLevel level, LivingEntity target)
+    /**
+     * Where Herobrine floats to, to get at a target standing high: right beside what they stand on, on his side of it, at their height.
+     * Not straight at their feet: into their pillar, he would get stuck under what they stand on (in a gap of it, they are out of his way).
+     * In such a gap already, he first gets out of their pillar, through a side with room.
+     */
+    private Vec3 besideColumn(ServerLevel level, LivingEntity target, BlockPos support)
+    {
+        Vec3 column = Vec3.atBottomCenterOf(support);
+        Vec3 side = this.mob.position().subtract(column).multiply(1.0D, 0.0D, 1.0D);
+        if (side.lengthSqr() < 0.25D)
+        {
+            BlockPos under = BlockPos.containing(column.x, this.mob.getY(), column.z);
+            Direction out = Direction.Plane.HORIZONTAL.stream().filter(direction -> isOpen(level, under.relative(direction)) && isOpen(level, under.relative(direction).above()))
+                    .findFirst().orElse(this.mob.getDirection());
+            side = new Vec3(out.getStepX(), 0.0D, out.getStepZ());
+        }
+        //(only touching it, it isn't in it)
+        double overlap = 0.5D + this.mob.getBbWidth() / 2.0D - 0.01D;
+        boolean inTheirPillar = Math.abs(this.mob.getX() - column.x) < overlap && Math.abs(this.mob.getZ() - column.z) < overlap;
+        return column.add(side.normalize().scale(BESIDE_COLUMN)).with(Direction.Axis.Y, inTheirPillar ? this.mob.getY() : target.getY());
+    }
+
+    /** Herobrine only: straight there, through the air; it lands back on the ground close to the target, or once it can walk on. */
+    private void floatTowards(ServerLevel level, LivingEntity target, Vec3 aim)
     {
         boolean landing = target.position().subtract(this.mob.position()).horizontalDistance() < LANDING_DISTANCE || isWalkable(level, this.mob.blockPosition().relative(this.towards(target)));
         if (this.floating && !this.isAbove(target) && this.hasGroundBelow(level) && landing)
@@ -355,7 +400,7 @@ public class Pursuit
         this.floating = true;
         this.mob.setNoGravity(true);
         this.mob.getNavigation().stop();
-        Vec3 way = target.position().subtract(this.mob.position());
+        Vec3 way = aim.subtract(this.mob.position());
         double distance = way.length();
         this.mob.setDeltaMovement(distance < 0.1D ? Vec3.ZERO : way.scale(Math.min(FLOAT_SPEED, distance) / distance));
         Facing.turn(this.mob, target.getEyePosition());
@@ -403,7 +448,7 @@ public class Pursuit
             return;
         }
         if (isWalkable(level, next)) {this.mob.getMoveControl().setWantedPosition(next.getX() + 0.5D, next.getY(), next.getZ() + 0.5D, 1.0D);}
-        else if (this.rise == Rise.FLOAT) {this.floatTowards(level, target);}
+        else if (this.rise == Rise.FLOAT) {this.floatTowards(level, target, target.position());}
     }
 
     /** The next block towards the target along the ground (along the axis they are the farthest on). */
