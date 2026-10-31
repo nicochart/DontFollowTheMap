@@ -289,7 +289,7 @@ public class HerobrineEntity extends Monster
         for (int i = 0; i < 6; i++) {candidates.add(target.position().add(Mth.nextDouble(this.random, -3.0D, 3.0D), 0.0D, Mth.nextDouble(this.random, -3.0D, 3.0D)));}
         for (Vec3 candidate : candidates)
         {
-            BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(candidate.x), Mth.floor(candidate.z), Mth.floor(candidate.y) + 2, Mth.floor(candidate.y) - 2);
+            BlockPos ground = HauntSpots.findRoomForHerobrineDown(level, Mth.floor(candidate.x), Mth.floor(candidate.z), Mth.floor(candidate.y) + 2, Mth.floor(candidate.y) - 2);
             //where he sees them (not in a gap under what they stand on, nor behind a wall)
             if (ground == null || ground.distToCenterSqr(target.position()) < 1.5D || !HauntSpots.canSee(level, Vec3.atBottomCenterOf(ground).add(0.0D, this.getEyeHeight(), 0.0D), target.getEyePosition())) {continue;}
             this.teleportWithSmoke(level, Vec3.atBottomCenterOf(ground));

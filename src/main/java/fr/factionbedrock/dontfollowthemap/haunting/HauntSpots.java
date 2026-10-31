@@ -88,27 +88,43 @@ public class HauntSpots
         return (state.isAir() || state.canBeReplaced()) && state.getFluidState().isEmpty() && !state.hasBlockEntity();
     }
 
-    @Nullable public static BlockPos findStandableDown(ServerLevel level, int x, int z, int fromY, int toY)
+    /** Room for Herobrine himself, who swims too (see Pursuit): standing on solid ground, or in water or lava, with nothing solid where his body goes. */
+    public static boolean isRoomForHerobrine(ServerLevel level, BlockPos pos)
+    {
+        return isStandable(level, pos) || !level.getFluidState(pos).isEmpty() && hasNoCollision(level, pos) && hasNoCollision(level, pos.above());
+    }
+
+    private static boolean hasNoCollision(ServerLevel level, BlockPos pos) {return level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();}
+
+    @Nullable public static BlockPos findStandableDown(ServerLevel level, int x, int z, int fromY, int toY) {return findDown(level, x, z, fromY, toY, false);}
+
+    /** The highest room for Herobrine in that column, between those heights: ground to stand on, or a liquid to be in (the surface of a lake). */
+    @Nullable public static BlockPos findRoomForHerobrineDown(ServerLevel level, int x, int z, int fromY, int toY) {return findDown(level, x, z, fromY, toY, true);}
+
+    @Nullable private static BlockPos findDown(ServerLevel level, int x, int z, int fromY, int toY, boolean orInLiquid)
     {
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos(x, fromY, z);
         for (int y = fromY; y >= toY; y--)
         {
             pos.setY(y);
-            if (isStandable(level, pos)) {return pos.immutable();}
+            if (orInLiquid ? isRoomForHerobrine(level, pos) : isStandable(level, pos)) {return pos.immutable();}
         }
         return null;
     }
 
     /** Ground spot at the given column, near the given height: the surface when outside, the floor of the cave or room otherwise. */
-    @Nullable public static BlockPos findGround(ServerLevel level, int x, int z, int nearY, boolean surface)
+    @Nullable public static BlockPos findGround(ServerLevel level, int x, int z, int nearY, boolean surface) {return findGround(level, x, z, nearY, surface, false);}
+
+    /** The same, or a spot in a liquid (the surface of a lake...) when orInLiquid: for Herobrine himself. */
+    @Nullable private static BlockPos findGround(ServerLevel level, int x, int z, int nearY, boolean surface, boolean orInLiquid)
     {
         if (!level.hasChunkAt(x, z)) {return null;}
         if (surface)
         {
             int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-            return Math.abs(top - nearY) > 24 ? null : findStandableDown(level, x, z, top, top - 3);
+            return Math.abs(top - nearY) > 24 ? null : findDown(level, x, z, top, top - 3, orInLiquid);
         }
-        return findStandableDown(level, x, z, nearY + 8, nearY - 8);
+        return findDown(level, x, z, nearY + 8, nearY - 8, orInLiquid);
     }
 
     public static boolean canSee(ServerLevel level, Vec3 from, Vec3 to)
@@ -142,6 +158,12 @@ public class HauntSpots
     /** The same, at least othersDistance away from every other player: one of them would come across the figure first. */
     @Nullable public static Vec3 findSightingSpot(ServerPlayer player, double minDistance, double maxDistance, double minAngle, double maxAngle, double othersDistance)
     {
+        return findSightingSpot(player, minDistance, maxDistance, minAngle, maxAngle, othersDistance, false);
+    }
+
+    /** The same, where a spot in water or lava will do too when orInLiquid: for Herobrine himself, who swims (a lake around the player...). */
+    @Nullable public static Vec3 findSightingSpot(ServerPlayer player, double minDistance, double maxDistance, double minAngle, double maxAngle, double othersDistance, boolean orInLiquid)
+    {
         ServerLevel level = player.level();
         RandomSource random = player.getRandom();
         boolean outside = level.canSeeSky(player.blockPosition().above());
@@ -152,7 +174,7 @@ public class HauntSpots
             double yaw = (lookYaw + angle) * Mth.DEG_TO_RAD;
             double distance = Mth.nextDouble(random, minDistance, maxDistance);
             int x = Mth.floor(player.getX() - Math.sin(yaw) * distance), z = Mth.floor(player.getZ() + Math.cos(yaw) * distance);
-            BlockPos ground = findGround(level, x, z, player.getBlockY(), outside);
+            BlockPos ground = findGround(level, x, z, player.getBlockY(), outside, orInLiquid);
             if (ground == null) {continue;}
             Vec3 feet = Vec3.atBottomCenterOf(ground);
             if (othersDistance > 0.0D && isNearOtherPlayer(player, feet, othersDistance)) {continue;}

@@ -41,8 +41,10 @@ import java.util.function.Predicate;
  * once there is a hole they can hit them through, from as far as a player could, they do. A player standing high (a pillar, a ledge)
  * gets what they stand on mined from under their feet as soon as it is within a player's reach; until it is, Herobrine floats up beside their pillar
  * and the imitator builds itself a pillar. Herobrine also floats over what can't be walked or dug (a ravine, a lava lake), and lands
- * as soon as he can walk on. Floating, he can't step over anything, not even a snow layer or a carpet: once he stops getting any closer,
- * he mines what he runs into. With no way at all, it is stuck: its owner decides what then.
+ * as soon as he can walk on. In water or in lava, deep or not (a current would hold him back), paths or not, he goes straight at them
+ * the same way, as if through the air.
+ * Floating, he can't step over anything, not even a snow layer or a carpet: once he stops getting any closer, he mines what he runs into.
+ * With no way at all, it is stuck: its owner decides what then.
  */
 public class Pursuit
 {
@@ -94,16 +96,19 @@ public class Pursuit
         return path != null && path.canReach();
     }
 
-    /** Called every tick while its owner is after this target: whether they can still be walked to (looked for from the ground only). */
+    /** Called every tick while its owner is after this target: whether they can still be walked to (looked for from the ground only, not while swimming). */
     public void track(ServerLevel level, LivingEntity target)
     {
-        if (!this.mob.onGround() || this.mob.tickCount % PATH_CHECK_INTERVAL != 0) {return;}
+        if (!this.mob.onGround() || this.isInLiquid() || this.mob.tickCount % PATH_CHECK_INTERVAL != 0) {return;}
         if (!canWalkTo(this.mob, target)) {this.unreachableTicks = Math.min(UNREACHABLE_TICKS, this.unreachableTicks + PATH_CHECK_INTERVAL);}
         else if (this.unreachableTicks > 0) {this.reset(level);}
     }
 
-    /** Whether it gets to the target another way: they can't be walked to, or it is floating towards them already. */
-    public boolean isActive() {return this.unreachableTicks >= UNREACHABLE_TICKS || this.floating;}
+    /** Whether it gets to the target another way: they can't be walked to, it is floating towards them already, or Herobrine is swimming. */
+    public boolean isActive() {return this.unreachableTicks >= UNREACHABLE_TICKS || this.floating || this.isInLiquid();}
+
+    /** Herobrine in water or lava, even shallow (a current would push him back): he goes straight at them, as through the air. */
+    private boolean isInLiquid() {return this.rise == Rise.FLOAT && this.mob.isInLiquid();}
 
     /** No way at all: nothing to mine, nowhere to build, not getting any closer. */
     public boolean isStuck() {return this.idleTicks >= STUCK_TICKS;}
@@ -140,7 +145,7 @@ public class Pursuit
         this.stopMining(level);
         this.idleTicks++;
         if (high) {this.rise(level, target, support, aim);}
-        else if (this.floating) {this.floatTowards(level, target, aim);}
+        else if (this.floating || this.isInLiquid()) {this.floatTowards(level, target, aim);}
         else {this.getCloser(level, target);}
         double distance = this.mob.distanceTo(target);
         if (distance < this.closest - 0.5D)
@@ -270,6 +275,8 @@ public class Pursuit
     @Nullable private static BlockPos support(ServerLevel level, LivingEntity target)
     {
         if (target.onGround()) {return target.getOnPos();}
+        //swimming: they don't stand on anything (what lies under the water wouldn't bring them down)
+        if (!level.getFluidState(target.blockPosition()).isEmpty()) {return null;}
         AABB feet = target.getBoundingBox();
         int top = Mth.floor(feet.minY - 0.01D);
         for (int y = top; y > top - 3; y--)
@@ -392,7 +399,7 @@ public class Pursuit
     private void floatTowards(ServerLevel level, LivingEntity target, Vec3 aim)
     {
         boolean landing = target.position().subtract(this.mob.position()).horizontalDistance() < LANDING_DISTANCE || isWalkable(level, this.mob.blockPosition().relative(this.towards(target)));
-        if (this.floating && !this.isAbove(target) && this.hasGroundBelow(level) && landing)
+        if (this.floating && !this.isInLiquid() && !this.isAbove(target) && this.hasGroundBelow(level) && landing)
         {
             this.land();
             return;

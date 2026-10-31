@@ -365,7 +365,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
         for (double ahead = AHEAD_MAX; ahead >= AHEAD_MIN; ahead -= 1.0D)
         {
             Vec3 spot = target.position().add(way.scale(ahead));
-            BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(target.getY()) + 2, Mth.floor(target.getY()) - 3);
+            BlockPos ground = HauntSpots.findRoomForHerobrineDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(target.getY()) + 2, Mth.floor(target.getY()) - 3);
             if (ground == null) {continue;}
             Vec3 feet = Vec3.atBottomCenterOf(ground);
             if (!HauntSpots.canSee(level, target.getEyePosition(), feet.add(0.0D, this.getEyeHeight(), 0.0D))) {continue;}
@@ -425,15 +425,19 @@ public class HerobrineApparitionEntity extends PathfinderMob
         this.webTicks = 0;
     }
 
-    /** STALK: gone in a puff of smoke, back behind its player, out of their sight, where it waits a moment. */
+    /**
+     * STALK: gone in a puff of smoke, back behind its player, where it waits a moment. It swims, so the water of a lake will do; with no room behind
+     * them, anywhere around them. With no room at all, it only waits where it is (no smoke: it doesn't go anywhere).
+     */
     private void blinkBehind(ServerLevel level, ServerPlayer target)
     {
         this.pursuit.reset(level);
         this.putWebAway();
-        HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
-        Vec3 spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 110.0D, 180.0D);
+        Vec3 spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 110.0D, 180.0D, 0.0D, true);
+        if (spot == null) {spot = HauntSpots.findSightingSpot(target, 7.0D, 12.0D, 0.0D, 180.0D, 0.0D, true);}
         if (spot != null)
         {
+            HauntEffects.puffOfSmoke(level, this.position(), 20, DFTMSounds.BLINK, 0.6F, 1.0F);
             this.teleportTo(spot.x, spot.y, spot.z);
             this.faceTowards(target);
         }
@@ -450,7 +454,7 @@ public class HerobrineApparitionEntity extends PathfinderMob
         for (double distance = 1.2D; distance <= 2.0D; distance += 0.4D)
         {
             Vec3 spot = target.position().add(back.scale(distance));
-            BlockPos ground = HauntSpots.findStandableDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(spot.y) + 1, Mth.floor(spot.y) - 1);
+            BlockPos ground = HauntSpots.findRoomForHerobrineDown(level, Mth.floor(spot.x), Mth.floor(spot.z), Mth.floor(spot.y) + 1, Mth.floor(spot.y) - 1);
             if (ground == null) {continue;}
             this.pursuit.reset(level);
             HauntEffects.puffOfSmoke(level, this.position(), 15, DFTMSounds.BLINK, 0.6F, 1.3F);

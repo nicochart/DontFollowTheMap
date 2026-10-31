@@ -1418,6 +1418,89 @@ public class DFTMGameTests
                 .thenSucceed();
     }
 
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 12)
+    public void stalkerGoesStraightThroughACurrentAtAPlayer(GameTestHelper helper)
+    {
+        //within the barriers of the test area: a bucket of water poured at the player's feet, its current running over the floor
+        //against whatever comes at them (shallow: nothing a mob would swim in)
+        floor(helper, 0, 7, Blocks.STONE);
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 6, 180.0F);
+        helper.setBlock(4, 1, 6, Blocks.WATER);
+        List<HerobrineApparitionEntity> stalker = new ArrayList<>();
+        boolean[] flew = {false};
+        helper.onEachTick(() -> stalker.forEach(apparition -> flew[0] |= apparition.isNoGravity() && apparition.isInWater()));
+        helper.startSequence()
+                //the current has spread
+                .thenIdle(40)
+                .thenExecute(() -> stalker.add(stalker(helper, player, 4.5D, 0.5D)))
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() < player.getMaxHealth(), "Against the current, the stalker must still get to the player and strike them"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(flew[0], "In the water, even shallow, it must go straight at them, as through the air");
+                    stalker.forEach(Entity::discard);
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 24)
+    public void stalkerBlinksIntoTheLakeAroundAPlayer(GameTestHelper helper)
+    {
+        //a lake 2 blocks deep around the player, held in by a rim of stone farther than the stalker blinks (12 blocks)
+        floor(helper, -10, 17, Blocks.STONE);
+        removeBarriers(helper);
+        for (int x = -10; x <= 17; x++)
+        {
+            for (int z = -10; z <= 17; z++)
+            {
+                boolean rim = x == -10 || x == 17 || z == -10 || z == 17;
+                for (int y = 1; y <= 2; y++) {helper.setBlock(x, y, z, rim ? Blocks.STONE : Blocks.WATER);}
+            }
+        }
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 4, 180.0F);
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, 2.0D);
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(player.hasEffect(MobEffects.DARKNESS), "In the lake, the stalker must strike the player"))
+                .thenWaitUntil(() -> helper.assertTrue(stalker.distanceTo(player) > 6.0D && stalker.isInWater(), "After its blow, it must be gone behind them, into the lake (not stay where it struck)"))
+                .thenExecute(() ->
+                {
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 16)
+    public void stalkerSwimsStraightAtAPlayerInDeepWater(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        //within the barriers of the test area: a pool 4 blocks deep, cut in two by a stone wall
+        floor(helper, 0, 7, Blocks.STONE);
+        List<BlockPos> wall = new ArrayList<>();
+        for (int x = 0; x <= 7; x++)
+        {
+            for (int z = 0; z <= 7; z++) {for (int y = 1; y <= 4; y++) {if (z != 4) {helper.setBlock(x, y, z, Blocks.WATER);}}}
+            for (int y = 1; y <= 6; y++) {wall.add(place(helper, x, y, 4, Blocks.STONE));}
+        }
+        //the player swims beyond it, 2 blocks above the bottom; the stalker is at the bottom, on the other side
+        ServerPlayer player = survivalPlayer(helper, 4, 3, 6, 180.0F);
+        BlockPos underThePlayer = helper.absolutePos(new BlockPos(4, 0, 6));
+        HerobrineApparitionEntity stalker = stalker(helper, player, 4.5D, 1.5D);
+        boolean[] swam = {false};
+        helper.onEachTick(() -> swam[0] |= stalker.isNoGravity() && stalker.isInWater());
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(player.getHealth() < player.getMaxHealth(), "In the water, the stalker must get to the player and strike them"))
+                .thenExecute(() ->
+                {
+                    helper.assertTrue(swam[0], "It must swim straight at them");
+                    helper.assertTrue(wall.stream().anyMatch(pos -> level.getBlockState(pos).is(Blocks.WATER) || level.isEmptyBlock(pos)), "It must mine its way through the wall");
+                    helper.assertTrue(level.getBlockState(underThePlayer).is(Blocks.STONE), "A swimming player stands on nothing: what lies under the water must not be mined");
+                    stalker.discard();
+                    removePlayer(player);
+                })
+                .thenSucceed();
+    }
+
     @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 200, skyAccess = true, padding = 16)
     public void stalkerInAGapOfAPillarGetsOutAndFloatsUpBesideIt(GameTestHelper helper)
     {
