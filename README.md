@@ -41,6 +41,8 @@ The mod is needed on the server and on the clients (entities, sounds, screen eff
 
 `config/dontfollowthemap.json` (created on first launch): every event can be turned off (each possessable animal
 too), chances and durations can be changed, and `eventFrequency` speeds the haunting up or slows it down.
+On the client, `customTitleScreenPanorama` gives the title screen the mod's own panorama: the game's, with things in it
+that shouldn't be there (`false` for the game's own).
 
 ## Commands (operators)
 

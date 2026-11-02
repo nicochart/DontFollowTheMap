@@ -14,7 +14,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Server side settings, read from config/dontfollowthemap.json (created with the default values on first launch).
+ * Settings, read from config/dontfollowthemap.json (created with the default values on first launch): server side ones,
+ * except the title screen's panorama (each client reads its own file).
  * Durations are in Minecraft days (20 minutes of play each). Only time spent in the Overworld counts.
  */
 public class DFTMConfig
@@ -26,6 +27,10 @@ public class DFTMConfig
     public boolean enabled = true;
     public boolean hauntCreativePlayers = false;
     public double eventFrequency = 1.0D;
+
+    //client
+    /** The title screen's panorama: the mod's own (the game's, with what shouldn't be there), or the game's (mixin/CubeMapTextureMixin). */
+    public boolean customTitleScreenPanorama = true;
 
     //progression
     public double graceDays = 1.0D;

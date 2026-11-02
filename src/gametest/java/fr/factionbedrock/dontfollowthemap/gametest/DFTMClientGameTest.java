@@ -1,12 +1,15 @@
 package fr.factionbedrock.dontfollowthemap.gametest;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import fr.factionbedrock.dontfollowthemap.DontFollowTheMap;
 import fr.factionbedrock.dontfollowthemap.client.ClientHaunting;
 import fr.factionbedrock.dontfollowthemap.client.FakeHitboxes;
 import fr.factionbedrock.dontfollowthemap.client.HauntedScreen;
 import fr.factionbedrock.dontfollowthemap.client.HerobrineFog;
 import fr.factionbedrock.dontfollowthemap.client.HerobrineSounds;
 import fr.factionbedrock.dontfollowthemap.client.ScrambledCoordinates;
+import fr.factionbedrock.dontfollowthemap.config.DFTMConfig;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.HerobrineEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
@@ -27,6 +30,8 @@ import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.components.debug.DebugEntryPosition;
 import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
 import net.minecraft.client.gui.components.debug.DebugScreenEntries;
+import net.minecraft.client.renderer.texture.CubeMapTexture;
+import net.minecraft.client.renderer.texture.TextureContents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
@@ -43,6 +48,8 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -57,6 +64,16 @@ public class DFTMClientGameTest implements FabricClientGameTest
 {
     @Override public void runTest(ClientGameTestContext context)
     {
+        //the title screen's panorama is the mod's own: Herobrine stands in its fourth face
+        context.runOnClient(client -> check(panoramaFaceIsTheMods(client, 3), "The title screen must show the mod's panorama"));
+        //turned off in the config: the game's own
+        context.runOnClient(client ->
+        {
+            DFTMConfig.get().customTitleScreenPanorama = false;
+            try {check(!panoramaFaceIsTheMods(client, 3), "Turned off in the config, the title screen must show the game's own panorama");}
+            finally {DFTMConfig.get().customTitleScreenPanorama = true;}
+        });
+
         try (TestSingleplayerContext singleplayer = context.worldBuilder().create())
         {
             TestServerContext server = singleplayer.getServer();
@@ -524,6 +541,26 @@ public class DFTMClientGameTest implements FabricClientGameTest
     private static void summon(TestServerContext server, String animal, double x, String tag, String data)
     {
         server.runCommand(String.format(Locale.ROOT, "summon minecraft:%s %.1f -60 8.5 {NoAI:1b,Rotation:[180f,0f],Tags:[\"%s\"],%s}", animal, x, tag, data));
+    }
+
+    /** The order in which CubeMapTexture stacks the faces of a panorama, each one upside down. */
+    private static final List<Integer> STACKED_FACES = List.of(1, 3, 5, 4, 0, 2);
+
+    /** Whether the title screen's panorama, loaded as the game loads it, has the mod's own image for that face. */
+    private static boolean panoramaFaceIsTheMods(Minecraft client, int face)
+    {
+        try (TextureContents panorama = new CubeMapTexture(Identifier.withDefaultNamespace("textures/gui/title/background/panorama")).loadContents(client.getResourceManager());
+             TextureContents own = TextureContents.load(client.getResourceManager(), DontFollowTheMap.id("textures/gui/title/background/panorama_" + face + ".png")))
+        {
+            NativeImage stacked = panorama.image(), image = own.image();
+            int top = STACKED_FACES.indexOf(face) * image.getHeight();
+            for (int y = 0; y < image.getHeight(); y++)
+            {
+                for (int x = 0; x < image.getWidth(); x++) {if (stacked.getPixel(x, top + image.getHeight() - 1 - y) != image.getPixel(x, y)) {return false;}}
+            }
+            return true;
+        }
+        catch (IOException e) {throw new UncheckedIOException(e);}
     }
 
     private static void check(boolean condition, String message)
