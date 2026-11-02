@@ -90,9 +90,14 @@ public class Pursuit
         this.canHit = canHit;
     }
 
-    public static boolean canWalkTo(PathfinderMob mob, LivingEntity target)
+    /**
+     * Whether a complete path leads to where the target stands, or will land: on the edge of a pillar, their middle may be over the void,
+     * and a path to the ground under it is no path to them.
+     */
+    public static boolean canWalkTo(ServerLevel level, PathfinderMob mob, LivingEntity target)
     {
-        Path path = mob.getNavigation().createPath(target, 0);
+        BlockPos support = support(level, target);
+        Path path = support == null ? mob.getNavigation().createPath(target, 0) : mob.getNavigation().createPath(new BlockPos(support.getX(), target.getBlockY(), support.getZ()), 0);
         return path != null && path.canReach();
     }
 
@@ -100,7 +105,7 @@ public class Pursuit
     public void track(ServerLevel level, LivingEntity target)
     {
         if (!this.mob.onGround() || this.isInLiquid() || this.mob.tickCount % PATH_CHECK_INTERVAL != 0) {return;}
-        if (!canWalkTo(this.mob, target)) {this.unreachableTicks = Math.min(UNREACHABLE_TICKS, this.unreachableTicks + PATH_CHECK_INTERVAL);}
+        if (!canWalkTo(level, this.mob, target)) {this.unreachableTicks = Math.min(UNREACHABLE_TICKS, this.unreachableTicks + PATH_CHECK_INTERVAL);}
         else if (this.unreachableTicks > 0) {this.reset(level);}
     }
 

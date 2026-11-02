@@ -218,23 +218,26 @@ public class HauntingDirector
     }
 
     /**
-     * Whether this reaction to what the player does happens now: its option is on, they can be haunted and are far enough in,
-     * it isn't on cooldown, and its chance says so (unless it is certain). Once it happened, its cooldown starts (HauntingData.startCooldown).
+     * Whether this reaction to what the player does happens now: its option is on and they can be haunted; unless it is certain,
+     * they are also far enough in, it isn't on cooldown, and its chance says so. Once it happened, its cooldown starts (HauntingData.startCooldown).
      */
     private static boolean rolls(ServerPlayer player, Reaction reaction, long now, boolean certain)
     {
         if (!reaction.isEnabled() || !canBeHaunted(player)) {return false;}
+        if (certain) {return true;}
         HauntingData data = HauntingData.get(player);
         int stage = data.stage(now);
         if (stage < reaction.minStage() || data.isOnCooldown(reaction, now)) {return false;}
-        return certain || player.getRandom().nextDouble() < reaction.chance(stage);
+        return player.getRandom().nextDouble() < reaction.chance(stage);
     }
 
     private static void onDeath(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source)
     {
-        if (!(source.getEntity() instanceof ServerPlayer player) || player.level() != entity.level() || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity || entity instanceof ImitatorEntity) {return;}
+        //the player it is credited to, as for its drops: burnt or fallen to death after their blow, it is theirs too
+        ServerPlayer player = source.getEntity() instanceof ServerPlayer killer ? killer : entity.getLastHurtByPlayerMemoryTime() > 0 && entity.getLastHurtByPlayer() instanceof ServerPlayer hurter ? hurter : null;
+        if (player == null || player.level() != entity.level() || entity instanceof Player || entity instanceof HerobrineApparitionEntity || entity instanceof HerobrineEntity || entity instanceof UnseenEntity || entity instanceof ImitatorEntity) {return;}
         long now = now(player.level().getServer());
-        //an animal he had taken over: he is there, always
+        //an animal he had taken over: he is there, always (whatever the cooldown, and their stage: it may come from an egg or the command)
         if (rolls(player, Reaction.KILL_APPARITION, now, entity instanceof PossessedAnimal) && HauntEvents.killApparition(player, entity.position())) {HauntingData.get(player).startCooldown(Reaction.KILL_APPARITION, now);}
     }
 

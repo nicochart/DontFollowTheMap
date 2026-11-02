@@ -33,7 +33,8 @@ import java.util.UUID;
 
 /**
  * What Herobrine does with an animal he took over. Same model, same texture, same name: nothing gives it away, except that it stares.
- * It follows its victim at a distance, charges when they come too close (or after staring long enough), strikes once, runs away,
+ * It follows its victim at a distance (left far behind, it runs to catch up, faster than any animal could), charges when they come too close
+ * (or after staring long enough), strikes once, runs away,
  * and turns back into the plain animal it was once out of sight. A raised shield stops its bite: it bounces off and bites again,
  * and the third time, it turns into Herobrine's stalker. A victim out of its reach (up on a pillar, walled in) gets a leap
  * no animal could make, up to 4 blocks high; higher, it waits below them, staring, for 20 to 30 seconds, then turns into Herobrine's stalker.
@@ -48,6 +49,13 @@ public class Possession
     private static final int CLOSE_STARE_TICKS_BEFORE_ATTACK = 20 * 15;
     private static final int ATTACK_TIMEOUT = 20 * 8;
     private static final int MIN_FLEE_TICKS = 20 * 6;
+    /** Farther than this from its victim, it lets go of the animal. */
+    private static final double RELEASE_DISTANCE = 48.0D;
+    /**
+     * STARE: left CATCH_UP_DISTANCE behind, it runs to catch up with its victim until it is back within CAUGHT_UP_DISTANCE, at the same speed
+     * whatever the animal (its movement speed times the modifier): about 11 blocks a second on grass, twice as fast as a sprinting player.
+     */
+    private static final double CATCH_UP_DISTANCE = 24.0D, CAUGHT_UP_DISTANCE = 16.0D, CATCH_UP_SPEED = 0.5D;
     /**
      * Out of its reach for UNREACHABLE_TICKS (no complete path), it besieges its victim: a leap onto them when they are up to MAX_LEAP_HEIGHT blocks higher,
      * from up to MAX_LEAP_DISTANCE away, one every LEAP_COOLDOWN ticks; then, after SIEGE_MIN_TICKS to SIEGE_MAX_TICKS, Herobrine's stalker instead of it.
@@ -71,7 +79,9 @@ public class Possession
     @Nullable private UUID victimId;
     private int phaseTicks;
     private int closeStareTicks;
-    /** ATTACK: how long it has chased a victim it can get to, how long they have been out of its reach, its siege below them. */
+    /** STARE: running to catch up with its victim. */
+    private boolean catchingUp;
+    /** ATTACK: how long it has chased a victim it can get to (since they were last out of its reach), how long they have been out of its reach, its siege below them. */
     private int chaseTicks, unreachableTicks, siegeTicks, siegeLength, leapCooldown;
     /** ATTACK: the bites their shield stopped, and the ticks before the next one. */
     private int parriedBites, biteCooldown;
@@ -111,7 +121,7 @@ public class Possession
         //spawned from an egg: it picks whoever is around
         if (this.victimId == null && level.getNearestPlayer(this.animal, 32.0D) instanceof Player nearest) {this.victimId = nearest.getUUID();}
         ServerPlayer victim = Players.inLevel(level, this.victimId);
-        if (victim == null || !Players.isInTheGame(victim) || this.animal.distanceToSqr(victim) > 48.0D * 48.0D)
+        if (victim == null || !Players.isInTheGame(victim) || this.animal.distanceToSqr(victim) > RELEASE_DISTANCE * RELEASE_DISTANCE)
         {
             this.release();
             return;
@@ -123,7 +133,10 @@ public class Possession
             {
                 this.stareAt(victim);
                 double distance = this.animal.distanceTo(victim);
-                if (distance > 14.0D) {this.animal.getNavigation().moveTo(victim, 0.9D);}
+                if (distance > CATCH_UP_DISTANCE) {this.catchingUp = true;}
+                else if (distance < CAUGHT_UP_DISTANCE) {this.catchingUp = false;}
+                if (this.catchingUp) {this.animal.getNavigation().moveTo(victim, CATCH_UP_SPEED / this.animal.getAttributeBaseValue(Attributes.MOVEMENT_SPEED));}
+                else if (distance > 14.0D) {this.animal.getNavigation().moveTo(victim, 0.9D);}
                 else if (distance < 10.0D) {this.animal.getNavigation().stop();}
                 if (distance < 10.0D) {this.closeStareTicks++;}
                 if (distance < 3.5D || this.closeStareTicks > CLOSE_STARE_TICKS_BEFORE_ATTACK) {this.setPhase(Phase.ATTACK);}
@@ -134,15 +147,19 @@ public class Possession
                 this.stareAt(victim);
                 if (this.animal.onGround() && this.phaseTicks % 10 == 0)
                 {
-                    this.unreachableTicks = Pursuit.canWalkTo(this.animal, victim) ? 0 : Math.min(UNREACHABLE_TICKS, this.unreachableTicks + 10);
+                    this.unreachableTicks = Pursuit.canWalkTo(level, this.animal, victim) ? 0 : Math.min(UNREACHABLE_TICKS, this.unreachableTicks + 10);
                 }
                 if (this.unreachableTicks < UNREACHABLE_TICKS)
                 {
-                    this.siegeTicks = 0;
                     this.chaseTicks++;
                     if (this.phaseTicks % 5 == 1) {this.animal.getNavigation().moveTo(victim, 2.0D);}
                 }
-                else if (this.besiege(level, victim)) {return;}
+                //out of its reach: a whole new chase if they come within it again, but the siege goes on where it was if they get back out of it
+                else
+                {
+                    this.chaseTicks = 0;
+                    if (this.besiege(level, victim)) {return;}
+                }
                 if (this.biteCooldown > 0) {this.biteCooldown--;}
                 else if (this.animal.isWithinMeleeAttackRange(victim) && this.animal.hasLineOfSight(victim))
                 {

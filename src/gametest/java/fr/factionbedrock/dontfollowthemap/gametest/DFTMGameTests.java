@@ -1626,6 +1626,22 @@ public class DFTMGameTests
                 .thenSucceed();
     }
 
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 80, skyAccess = true, padding = 32)
+    public void possessedAnimalLeftFarBehindRunsToCatchUp(GameTestHelper helper)
+    {
+        floor(helper, -4, 36, Blocks.GRASS_BLOCK);
+        removeBarriers(helper);
+        //30 blocks away: walking after them, it would take it some 15 seconds to be back within 16 blocks
+        ServerPlayer player = survivalPlayer(helper, 4, 1, 34, 180.0F);
+        Animal sheep = PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(4, 1, 4)), player);
+        helper.succeedWhen(() ->
+        {
+            helper.assertTrue(sheep.distanceTo(player) < 17.0D, "Left far behind, it must run to catch up with the player, faster than any animal");
+            sheep.discard();
+            removePlayer(player);
+        });
+    }
+
     @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = 300, skyAccess = true, padding = 12)
     public void possessedAnimalLeapsOntoALowPillar(GameTestHelper helper)
     {
@@ -1661,6 +1677,34 @@ public class DFTMGameTests
         {
             List<HerobrineApparitionEntity> stalkers = stalkersAfter(helper, player);
             helper.assertTrue(sheep.isRemoved() && !stalkers.isEmpty(), "After its siege, Herobrine's stalker must come instead of it");
+            stalkers.forEach(Entity::discard);
+            removePlayer(player);
+        });
+    }
+
+    @GameTest(environment = SURVIVAL_PLAYERS, maxTicks = Possession.SIEGE_MAX_TICKS + 200, skyAccess = true, padding = 12)
+    public void possessedAnimalBesiegesAPlayerOnTheEdgeOfTheirPillar(GameTestHelper helper)
+    {
+        ServerLevel level = helper.getLevel();
+        floor(helper, -4, 11, Blocks.GRASS_BLOCK);
+        removeBarriers(helper);
+        BlockPos top = pillar(helper, 4, 6, 8);
+        ServerPlayer player = survivalPlayer(helper, 4, 9, 6, 180.0F);
+        player.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 20 * 60, 4));
+        Animal sheep = PossessableAnimals.SHEEP.possess(helper.spawn(EntityTypes.SHEEP, new BlockPos(4, 1, 2)), player);
+        sheep.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+        //looking down at it over the edge, their middle over the ground beside the pillar (where a path from the ground would end), and hopping now and then
+        helper.onEachTick(() ->
+        {
+            boolean hopping = helper.getTick() % 40 < 8;
+            player.snapTo(top.getX() + 0.5D, top.getY() + (hopping ? 2.0D : 1.0D), top.getZ() - 0.2D, 180.0F, 60.0F);
+            player.setOnGroundWithMovement(!hopping, Vec3.ZERO);
+        });
+        helper.runAfterDelay(Possession.SIEGE_MIN_TICKS - 40, () -> helper.assertTrue(sheep.isAlive(), "It must wait below the player for 20 seconds at least, not run away"));
+        helper.succeedWhen(() ->
+        {
+            List<HerobrineApparitionEntity> stalkers = stalkersAfter(helper, player);
+            helper.assertTrue(sheep.isRemoved() && !stalkers.isEmpty(), "Even with the player on the edge of their pillar, Herobrine's stalker must come instead of it after its siege");
             stalkers.forEach(Entity::discard);
             removePlayer(player);
         });

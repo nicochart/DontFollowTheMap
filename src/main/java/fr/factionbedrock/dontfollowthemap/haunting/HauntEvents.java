@@ -4,6 +4,7 @@ import fr.factionbedrock.dontfollowthemap.entity.HerobrineApparitionEntity;
 import fr.factionbedrock.dontfollowthemap.entity.ImitatorEntity;
 import fr.factionbedrock.dontfollowthemap.entity.possessed.PossessableAnimals;
 import fr.factionbedrock.dontfollowthemap.network.HerobrineAppearedPayload;
+import fr.factionbedrock.dontfollowthemap.registry.DFTMEntities;
 import fr.factionbedrock.dontfollowthemap.registry.DFTMSounds;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
@@ -406,17 +407,39 @@ public class HauntEvents
     }
 
     //apparitions caused by the player
-    /** Herobrine appears for an instant where the player just killed something. */
+    /** Herobrine appears for an instant where the player just killed something (see roomOnCorpse). */
     public static boolean killApparition(ServerPlayer player, Vec3 corpse)
     {
         ServerLevel level = player.level();
-        BlockPos pos = BlockPos.containing(corpse);
-        //a creature killed in a 1 block high gap or in mid air: try just above, give up otherwise
-        BlockPos standing = HauntSpots.isStandable(level, pos) ? pos : HauntSpots.isStandable(level, pos.above()) ? pos.above() : HauntSpots.findStandableDown(level, pos.getX(), pos.getZ(), pos.getY(), pos.getY() - 3);
-        if (standing == null) {return false;}
-        HerobrineApparitionEntity.spawn(level, new Vec3(corpse.x, standing.getY(), corpse.z), player, HerobrineApparitionEntity.Mode.FLASH, 22);
+        Vec3 spot = roomOnCorpse(level, corpse);
+        if (spot == null) {return false;}
+        HerobrineApparitionEntity.spawn(level, spot, player, HerobrineApparitionEntity.Mode.FLASH, 22);
         appearSuddenly(level, corpse);
         return true;
+    }
+
+    /**
+     * Where Herobrine stands on what was just killed: right where it lay, if he fits there (on any ground, a slab, a path, farmland, or in water);
+     * killed in mid-air (a leap...), on the ground under it, down to 8 blocks; in a gap too low for him, right beside it. Null if there is no room at all.
+     */
+    @Nullable private static Vec3 roomOnCorpse(ServerLevel level, Vec3 corpse)
+    {
+        BlockPos pos = BlockPos.containing(corpse);
+        AABB body = DFTMEntities.APPARITION.getDimensions().makeBoundingBox(corpse);
+        boolean held = !level.getFluidState(pos).isEmpty() || !level.noCollision(body.move(0.0D, -0.1D, 0.0D));
+        if (!held)
+        {
+            BlockPos ground = HauntSpots.findRoomForHerobrineDown(level, pos.getX(), pos.getZ(), pos.getY(), pos.getY() - 8);
+            return ground == null ? null : new Vec3(corpse.x, ground.getY(), corpse.z);
+        }
+        if (level.noCollision(body)) {return corpse;}
+        for (Direction side : Direction.Plane.HORIZONTAL)
+        {
+            BlockPos beside = pos.relative(side);
+            BlockPos room = HauntSpots.findRoomForHerobrineDown(level, beside.getX(), beside.getZ(), beside.getY() + 1, beside.getY() - 1);
+            if (room != null) {return Vec3.atBottomCenterOf(room);}
+        }
+        return null;
     }
 
     /** Herobrine appears all of a sudden here: his appearance sound, and the screens of the players around jolt (client/HauntedScreen). */
